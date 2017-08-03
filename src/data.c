@@ -820,7 +820,7 @@ data load_data_swag(char **paths, int n, int classes, float jitter)
 **       m         paths的行数，也即训练图片总数
 **       w         网络能够处理的图的宽度（也就是输入图片经过一系列数据增强、变换之后最终输入到网络的图的宽度）
 **       h         网络能够处理的图的高度（也就是输入图片经过一系列数据增强、变换之后最终输入到网络的图的高度）
-**       boxes     每张训练图片最大处理的矩形框数（图片内可能含有更多的物体，即更多的矩形框，那么就在其中随机选择boxes个参与训练）
+**       boxes     每张训练图片最大处理的矩形框数（图片内可能含有更多的物体，即更多的矩形框，那么就在其中随机选择boxes个参与训练，具体执行在fill_truth_detection()函数中）
 **       classes   类别总数，本函数并未用到（fill_truth_detection函数其实并没有用这个参数）
 **       jitter    这个参数为缩放抖动系数，就是图片缩放抖动的剧烈程度，越大，允许的抖动范围越大（所谓缩放抖动，就是在宽高上插值缩放图片，宽高两方向上缩放的系数不一定相同）
 **       hue       颜色（hsv颜色空间）数据增强参数：色调（取值0度到360度）偏差最大值，实际色调偏差为-hue~hue之间的随机值
@@ -1024,7 +1024,7 @@ void *load_threads(void *ptr)
     // load_data(load_args args)->load_threads(load_args* ptr)->load_data_in_thread(load_args args)->load_thread(load_args* ptr)，
     // 就在load_data()中，重新定义了ptr，并为之动态分配了内存，且深拷贝了传给load_data()函数的值args，也就是说在此之后load_data()函数中的args除了其中的指针变量指着同一块堆内存之外，
     // 二者的非指针变量再无瓜葛，不管之后经过多少个函数，对ptr的非指针变量做了什么改动，比如这里直接free(ptr)，使得非指针变量值为0,都不会影响load_data()中的args的非指针变量，也就不会影响更为顶层函数中定义的args的非指针变量的值，
-    // 比如train_detector()函数中的args，train_detector()对args非指针变量赋的值都不会收影响，保持不变。综其两点，此处直接free(ptr)是安全的。
+    // 比如train_detector()函数中的args，train_detector()对args非指针变量赋的值都不会受影响，保持不变。综其两点，此处直接free(ptr)是安全的。
     // 说明：free(ptr)函数，确定会做的事是使得内存块可以重新分配，且不会影响指针变量ptr本身的值，也就是ptr还是指向那块地址， 虽然可以使用，但很危险，因为这块内存实际是无效的，
     //      系统已经认为这块内存是可分配的，会毫不考虑的将这块内存分给其他变量，这样，其值随时都可能会被其他变量改变，这种情况下的ptr指针就是所谓的野指针（所以经常可以看到free之后，置原指针为NULL）。
     //      而至于free(ptr)还不会做其他事情，比如会不会重新初始化这块内存为0（擦写掉），以及怎么擦写，这些操作，是不确定的，可能跟具体的编译器有关（个人猜测），
@@ -1079,7 +1079,7 @@ void *load_threads(void *ptr)
 }
 
 /*
-** 开辟线程，读入一次迭代所需的所有图片数据：读入图片的张数为args.n = batch * subdivision * ngpus，读入数据将存入args.d中（虽然args是按值传递的，但是args.d是指针变量，函数内改变args.d在函数外也是有效的）
+** 开辟线程，读入一次迭代所需的所有图片数据：读入图片的张数为args.n = net.batch * net.subdivisions * ngpus，读入数据将存入args.d中（虽然args是按值传递的，但是args.d是指针变量，函数内改变args.d所指的内容在函数外也是有效的）
 ** 输入： args    包含要读入图片数据的信息（读入多少张，开几个线程读入，读入图片最终的宽高，图片路径等等）
 ** 返回： 创建的读取数据的线程id，以便于外界控制线程的进行
 ** 说明： darknet作者在实现读入图片数据的时候，感觉有点绕来绕去的（也许此中有深意，只是我还未明白～），
@@ -1344,12 +1344,31 @@ void get_random_batch(data d, int n, float *X, float *y)
     }
 }
 
+/*
+** 从输入d中深拷贝n张图片的数据与标签信息至X与y中：将d.X.vals以及d.y.vals（如有必要）逐行深拷贝至X,y中
+** 输入： d    读入的图片数据，按行存入其中（一张图片对应一行，每一行又按行存储每张图片）
+**       n    从d中深拷贝n张图片的数据与标签信息到X与y中
+**       offset    相对d首地址的偏移，表示从d中哪张图片开始拷贝（从此往后拷n张图片）
+**       X    d.X.vals目标存储变量
+**       y    d.y.vals目标存储变量
+** 注意：举例说明，在network.c中的train_network()中，调用了本函数，其中输入n=net.batch（关于net.batch这个参数，可以参考network.h中的注释），
+**      而d中实际包含了的图片张数为：net.batch*net.subdivision（可以参考detector.c中的train_detector(),你可能注意到这里没有乘以ngpu，
+**      是因为train_network()函数对应处理ngpu=1的情况，如果有多个gpu，那么会首先调用train_networks()函数，在其之中会调用get_data_part()将数据平分至每个gpu上，
+**      而后再调用train_network()，总之最后train_work()的输入d中只包含net.batch*net.subdivision张图片），可知本函数只是获取其中一个小batch图片，事实上，
+**      从train_network()函数中也可以看出，每次训练一个真实的batch的图片（所谓真实的batch，是指网络配置文件中指定的一个batch中所含的图片张数，详细参考network.h中的注释），
+**      又分了d.X.rows/batch次完成，d.X.rows/batch实际就是net.subdivision的值（可以参考data.c中load_data_detection()）。
+*/
 void get_next_batch(data d, int n, int offset, float *X, float *y)
 {
     int j;
+    // 下面逐行将输入d中的数据深拷贝至X中
     for(j = 0; j < n; ++j){
         int index = offset + j;
+        // memcpy(void* destination,const void *source,size_t num);函数用来复制块内存，常用于数组间的复制赋值（指针所指内容复制，不是指针复制）
+        // 此处将d.X中的数据d.X.vals中的某一行深拷贝至输入X中
         memcpy(X+j*d.X.cols, d.X.vals[index], d.X.cols*sizeof(float));
+
+        // 如果y也分配了内存（也有这个需求），那么也将d.y中的某一行拷贝至y中
         if(y) memcpy(y+j*d.y.cols, d.y.vals[index], d.y.cols*sizeof(float));
     }
 }

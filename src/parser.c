@@ -218,7 +218,8 @@ convolutional_layer parse_convolutional(list *options, size_params params)
     char *activation_s = option_find_str(options, "activation", "logistic");
     ACTIVATION activation = get_activation(activation_s);
 
-    // h,w,c为上一层的输出的高度/宽度/通道数（第一层的则是输入的图片的尺寸与通道数，也即net.h,net.w,net.c），batch所有层都一样（不变）
+    // h,w,c为上一层的输出的高度/宽度/通道数（第一层的则是输入的图片的尺寸与通道数，也即net.h,net.w,net.c），batch所有层都一样（不变），
+    // params.h,params.w,params.c及params.inputs在构建每一层之后都会更新为上一层相应的输出参数（参见parse_network_cfg()）
     int batch,h,w,c;
     h = params.h;
     w = params.w;
@@ -302,8 +303,16 @@ connected_layer parse_connected(list *options, size_params params)
 
 softmax_layer parse_softmax(list *options, size_params params)
 {
+    //
     int groups = option_find_int_quiet(options, "groups",1);
+    //
     softmax_layer layer = make_softmax_layer(params.batch, params.inputs, groups);
+
+    // softmax的温度参数，温度参数对于softmax还是比较重要的，当temperature很大时，即趋于正无穷时，所有的激活值对应的激活概率趋近于相同
+    // （激活概率差异性较小）；而当temperature很低时，即趋于0时，不同的激活值对应的激活概率差异也就越大。
+    // 可以参考博客：http://www.cnblogs.com/maybe2030/p/5678387.html?utm_source=tuicool&utm_medium=referral
+    // 或者搜索softmax with temperature，应该会有比较多的搜索结果
+    // 该参数的值由网络配置文件指定（比如cifar.test.cfg），如未指定，则使用默认值1
     layer.temperature = option_find_float_quiet(options, "temperature", 1);
     char *tree_file = option_find_str(options, "tree", 0);
     if (tree_file) layer.softmax_tree = read_tree(tree_file);
@@ -607,6 +616,8 @@ void parse_net_options(list *options, network *net)
     net->h = option_find_int_quiet(options, "height",0);
     net->w = option_find_int_quiet(options, "width",0);
     net->c = option_find_int_quiet(options, "channels",0);
+
+    // 一张输入图片的元素个数，如果网络配置文件没有指定，则默认值为net->h * net->w * net->c
     net->inputs = option_find_int_quiet(options, "inputs", net->h * net->w * net->c);
     net->max_crop = option_find_int_quiet(options, "max_crop",net->w*2);
     net->min_crop = option_find_int_quiet(options, "min_crop",net->w);
@@ -786,6 +797,7 @@ network parse_network_cfg(char *filename)
         free_section(s);
         n = n->next;
         ++count;
+        // 构建每一层之后，如果之后还有层，则更新params.h,params.w,params.c及params.inputs为上一层相应的输出参数
         if(n){
             params.h = l.out_h;
             params.w = l.out_w;

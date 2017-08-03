@@ -216,6 +216,9 @@ void l1_cpu(int n, float *pred, float *truth, float *delta, float *error)
     }
 }
 
+/*
+** 
+*/
 void l2_cpu(int n, float *pred, float *truth, float *delta, float *error)
 {
     int i;
@@ -234,29 +237,61 @@ float dot_cpu(int N, float *X, int INCX, float *Y, int INCY)
     return dot;
 }
 
+/*
+** 输入： input   一组输入图片数据（含义见下面softmax_cpu()注释，下同）
+**       n       一组输入数据中含有的元素个数n=l.inputs/l.groups
+**       temp    温度参数，关于softmax的温度参数，可以搜索一下softmax with temperature，应该会有很多的
+**       stride  跨度
+**       output  这一组输入图片数据对应的输出（也即l.output中与这一组输入对应的某一部分）
+** 说明：本函数实现的就是标准的softmax函数处理，唯一有点变化的就是在做指数运算之前，将每个输入元素减去了该组输入元素中的最大值，以增加数值稳定性，
+**      关于此，可以参加博客：http://freemind.pluskid.org/machine-learning/softmax-vs-softmax-loss-numerical-stability/，
+**      这篇博客写的不错，博客中还提到了softmax-loss，此处没有实现（此处实现的也即博客中提到的softmax函数，将softmax-loss分开实现了）。
+*/
 void softmax(float *input, int n, float temp, int stride, float *output)
 {
     int i;
     float sum = 0;
+    // 赋初始最大值为float中的最小值-FLT_MAX（定义在float.h中）
     float largest = -FLT_MAX;
+    // 寻找输入中的最大值，至于为什么要找出最大值，是为了数值计算上的稳定，详细请戳：http://freemind.pluskid.org/machine-learning/softmax-vs-softmax-loss-numerical-stability/
+    // 这篇博客写的不错，博客在接近尾声的时候，提到了为什么要减去输入中的最大值。
     for(i = 0; i < n; ++i){
         if(input[i*stride] > largest) largest = input[i*stride];
     }
     for(i = 0; i < n; ++i){
+        // 在进行指数运算之间，如上面博客所说，首先减去最大值（当然温度参数也要除）
         float e = exp(input[i*stride]/temp - largest/temp);
-        sum += e;
-        output[i*stride] = e;
+        sum += e;                       // 求和
+        output[i*stride] = e;           // 并将每一个输入的结果保存在相应的输出中
     }
+    // 最后一步：归一化转换为概率（就是softmax函数的原型～），最后的输出结果保存在output中
     for(i = 0; i < n; ++i){
         output[i*stride] /= sum;
     }
 }
 
-
+/*
+** 输入： input    softmax层所有输入数据（包含整个batch的），即net.input（上一层的输出）
+**       n        一组输入数据中含有的元素个数n=l.inputs/l.groups
+**       batch    一个batch中所含有的图片张数（等于net.batch）
+**       batch_offset    一张输入图片含有的元素个数，即值等于l.inputs（所以叫做batch_offset，目的是要借助该参数在input中整张整张照片移位）
+**       groups   一张输入图片的元素被分成了几组，值为l.groups（这个参数由配置文件指定，如果未指定，则默认为1）,这个参数暂时还没遇到怎么用，大部分的网络值都为1,也即相当于没有这个参数
+**       group_offset    值等于n，组偏移（在每张输入图片元素中整组整组偏移）
+**       stride   跨度，这个参数类似于axpy_cpu()函数中的INCX参数，一定注意不同于卷积层中的l.stride，这个参数是指按照stride间隔从每组输入数据中抽取元素，即会抽取所有索引为stride倍数的输入元素，
+**                而其他的输入元素，实际没有用到；stride=1时，显然，相当于没有这个参数，所有输入数据都用到了（这个参数在softmax_layer层中，相当于没用，因为在forward_softmax_layer()中，
+**                调用该函数时，stride已经被写死为1,并不能改，不知道还有没有其他地方使用了这个参数）
+**       temp     softmax的温度参数l.temperature，关于softmax的温度参数，可以搜索一下softmax with temperature，应该会有很多的
+**       output   经softmax处理之后得到的输出l.output（即概率），与input具有相同的元素个数（见make_softmax_layer()），其实由此也可知，
+**                stride的值必然为1,不然output的元素个数肯定少于input的元素个数（所以对于softmax来说，感觉设置stride是没有必要的，有点自相矛盾的意思）
+** 说明：上面的注释出现了新的量词单位，这里厘清一下关系：输入input中包括batch中所有图片的输入数据，其中一张图片具有inputs个元素，一张图片的元素又分成了groups组，
+**      每组元素个数为n=l.inputs/l.groups
+*/
 void softmax_cpu(float *input, int n, int batch, int batch_offset, int groups, int group_offset, int stride, float temp, float *output)
 {
     int g, b;
+    // 遍历batch中的每张图片
     for(b = 0; b < batch; ++b){
+        // 每张图片又按组遍历：一组一组遍历
         for(g = 0; g < groups; ++g){
             softmax(input + b*batch_offset + g*group_offset, n, temp, stride, output + b*batch_offset + g*group_offset);
         }

@@ -10,42 +10,60 @@
 #include <stdlib.h>
 #include <string.h>
 
+/*
+** 构建全连接层
+** 输入： batch             该层输入中一个batch所含有的图片张数，等于net.batch
+**       inputs            全连接层每张输入图片的元素个数
+**       outputs           全连接层输出元素个数（由网络配置文件指定，如果未指定，默认值为1,在parse_connected()中赋值）
+**       activation        激活函数类型
+**       batch_normalize   是否进行BN
+** 返回： 全连接层l
+*/
 connected_layer make_connected_layer(int batch, int inputs, int outputs, ACTIVATION activation, int batch_normalize)
 {
     int i;
     connected_layer l = {0};
     l.type = CONNECTED;
 
-    l.inputs = inputs;
-    l.outputs = outputs;
-    l.batch=batch;
-    l.batch_normalize = batch_normalize;
-    l.h = 1;
+    l.inputs = inputs;                          // 全连接层一张输入图片的元素个数
+    l.outputs = outputs;                        // 全连接层对应一张输入图片的输出元素个数
+    l.batch=batch;                              // 一个batch中的图片张数
+    l.batch_normalize = batch_normalize;        // 是否进行BN
+    l.h = 1;                                    // 全连接层输入图片高为1,宽也为1
     l.w = 1;
-    l.c = inputs;
-    l.out_h = 1;
+    l.c = inputs;                               // 全连接层的输入通道数等于单张输入图片的元素个数
+    l.out_h = 1;                                // 全连接层的输出图高为1,宽也为1
     l.out_w = 1;
-    l.out_c = outputs;
+    l.out_c = outputs;                          // 全连接层输出图片的通道数等于一张输入图片对应的输出元素个数
 
-    l.output = calloc(batch*outputs, sizeof(float));
-    l.delta = calloc(batch*outputs, sizeof(float));
+    l.output = calloc(batch*outputs, sizeof(float));    // 全连接层所有输出（包含整个batch的）
+    l.delta = calloc(batch*outputs, sizeof(float));     // 全连接层的敏感度图（包含整个batch的）
 
-    l.weight_updates = calloc(inputs*outputs, sizeof(float));
-    l.bias_updates = calloc(outputs, sizeof(float));
+    // 由下面forward_connected_layer()函数中调用的gemm()可以看出，l.weight_updates应该理解为outputs行，inputs列
+    l.weight_updates = calloc(inputs*outputs, sizeof(float));   // 全连接层权重系数更新值个数等于一张输入图片元素个数与其对应输出元素个数之积
+    l.bias_updates = calloc(outputs, sizeof(float));            // 全连接层偏置更新值个数就等于一张输入图片的输出元素个数
 
-    l.weights = calloc(outputs*inputs, sizeof(float));
-    l.biases = calloc(outputs, sizeof(float));
+    // 由下面forward_connected_layer()函数中调用的gemm()可以看出，l.weight应该理解为outputs行，inputs列
+    l.weights = calloc(outputs*inputs, sizeof(float));          // 全连接层权重系数个数等于一张输入图片元素个数与其对应输出元素个数之积
+    l.biases = calloc(outputs, sizeof(float));                  // 全连接层偏置个数就等于一张输入图片的输出元素个数
 
+    // 全连接层前向、反向、更新函数
     l.forward = forward_connected_layer;
     l.backward = backward_connected_layer;
     l.update = update_connected_layer;
 
-    //float scale = 1./sqrt(inputs);
+    // 初始化权重：缩放因子*-1到1之间的均匀分布，缩放因子等于sqrt(2./inputs)，为什么取这个值呢？？暂时没有想清楚，
+    // 注意，与卷积层make_convolutional_layer()中初始化值不同，这里是均匀分布，而卷积层中是正态分布。
+    // TODO：个人感觉，这里应该加一个if条件语句：if(weightfile)，因为如果导入了预训练权重文件，就没有必要这样初始化了（事实上在detector.c的train_detector()函数中，
+    // 紧接着parse_network_cfg()函数之后，就添加了if(weightfile)语句判断是否导入权重系数文件，如果导入了权重系数文件，也许这里初始化的值也会覆盖掉，
+    // 总之这里的权重初始化的处理方式还是值得思考的，也许更好的方式是应该设置专门的函数进行权重的初始化，同时偏置也是）
+    //float scale = 1./sqrt(inputs);    
     float scale = sqrt(2./inputs);
     for(i = 0; i < outputs*inputs; ++i){
         l.weights[i] = scale*rand_uniform(-1, 1);
     }
 
+    // 初始化所有偏置值为0
     for(i = 0; i < outputs; ++i){
         l.biases[i] = 0;
     }
@@ -125,17 +143,42 @@ void update_connected_layer(connected_layer l, int batch, float learning_rate, f
     scal_cpu(l.inputs*l.outputs, momentum, l.weight_updates, 1);
 }
 
+/*
+** 全连接层前向传播函数
+** 输入： l     当前全连接层
+**       net   整个网络
+** 流程： 全连接层的前向传播相对简单，首先初始化输出l.output全为0,在进行相关参数赋值之后，直接调用gemm_nt()完成Wx操作，
+**       而后根据判断是否需要BN，如果需要，则进行BN操作，完了之后为每一个输出元素添加偏置得到Wx+b，最后使用激活函数处理
+**       每一个输出元素，得到f(Wx+b)
+*/
 void forward_connected_layer(connected_layer l, network net)
 {
     int i;
+    // 初始化全连接层的所有输出（包含所有batch）为0值
     fill_cpu(l.outputs*l.batch, 0, l.output, 1);
+
+    // m：全连接层接收的一个batch的图片张数
+    // k：全连接层单张输入图片元素个数
+    // n：全连接层对应单张输入图片的输出元素个数
     int m = l.batch;
     int k = l.inputs;
     int n = l.outputs;
+
     float *a = net.input;
     float *b = l.weights;
     float *c = l.output;
+
+    // a：全连接层的输入数据，维度为l.batch*l.inputs（包含整个batch的输入），可视作l.batch行，l.inputs列，每行就是一张输入图片
+    // b：全连接层的所有权重，维度为outputs*inputs
+    // c：全连接层的所有输出（包含所有batch），维度为l.batch*l.outputs（包含整个batch的输出）
+    // 根据维度匹配规则，显然需要对b进行转置，故而调用gemm_nt()函数，最终计算得到的c的维度为l.batch*l.outputs,
+    // 全连接层的的输出很好计算，直接矩阵相承就可以了，所谓全连接，就是全连接层的输出与输入的每一个元素都有关联（当然是同一张图片内的，
+    // 最中得到的c有l.batch行,l.outputs列，每行就是一张输入图片对应的输出）
+    // m：a的行，值为l.batch，含义为全连接层接收的一个batch的图片张数
+    // n：b'的列数，值为l.outputs，含义为全连接层对应单张输入图片的输出元素个数
+    // k：a的列数，值为l.inputs，含义为全连接层单张输入图片元素个数
     gemm(0,1,m,n,k,1,a,k,b,k,1,c,n);
+
     if(l.batch_normalize){
         if(net.train){
             mean_cpu(l.output, l.batch, l.outputs, 1, l.mean);
@@ -154,16 +197,41 @@ void forward_connected_layer(connected_layer l, network net)
         }
         scale_bias(l.output, l.scales, l.batch, l.outputs, 1);
     }
+    // 前面得到的是全连接层每个输出元素的加权输入Wx，下面这个循环就是为每个元素加上偏置，最终得到每个输出元素上的加权输入：Wx+b
+    // 循环次数为l.batch，不是l.outputs，是因为对于全连接层来说，l.batch = l.outputs，无所谓了～
     for(i = 0; i < l.batch; ++i){
+        // axpy_cpu()完成l.output + i*l.outputs = l.biases + (l.output + i*l.outputs)操作
+        // l.biases的维度为l.outputs;l.output的维度为l.batch*l.outputs，包含整个batch的输出，所以需要注意移位
         axpy_cpu(l.outputs, 1, l.biases, 1, l.output + i*l.outputs, 1);
     }
+    
+    // 前向传播最后一步：前面得到每一个输出元素的加权输入Wx+b,这一步利用激活函数处理l.output中的每一个输出元素，
+    // 最终得到全连接层的输出f(Wx+b)
     activate_array(l.output, l.outputs*l.batch, l.activation);
 }
 
+/*
+** 全连接层反向传播函数
+** 输入： l     当前全连接层
+**       net   整个网络
+** 流程：先完成之前为完成的计算：计算当前层的敏感度图l.delta（注意是反向传播），而后调用axpy_cpu()函数计算当前全连接层的偏置更新值（基于完全计算完的l.delta），
+**      然后判断是否进行BN，如果进行，则完成BN操作，再接着计算当前层权重更新值，最后计算上一层的敏感度图（完成大部分计算）。相比于卷积神经网络，
+**      全连接层很多的计算变得更为直接，不需要调用诸如im2col_cpu()或者col2im_cpu()函数对数据重排来重排去，直接矩阵相乘就可以搞定。
+*/
 void backward_connected_layer(connected_layer l, network net)
 {
     int i;
+    // 完成当前层敏感度图的计算：当前全连接层下一层不管是什么类型的网络，都会完成当前层敏感度图的绝大部分计算（上一层敏感度乘以上一层与当前层之间的权重）
+    // （注意是反向传播），此处只需要再将l.delta中的每一个元素乘以激活函数对加权输入的导数即可
+    // gradient_array()函数完成激活函数对加权输入的导数，并乘以之前得到的l.delta，得到当前层最终的l.delta（误差函数对加权输入的导数）
     gradient_array(l.output, l.outputs*l.batch, l.activation, l.delta);
+
+    // 计算当前全连接层的偏置更新值
+    // 相比于卷积层的偏置更新值，此处更为简单（卷积层中有专门的偏置更新值计算函数，主要原因是卷积核在图像上做卷积即权值共享增加了复杂度，而全连接层没有权值共享），
+    // 只需调用axpy_cpu()函数就可以完成。误差函数对偏置的导数实际就等于以上刚求完的敏感度值，因为有多张图片，需要将多张图片的效果叠加，故而循环调用axpy_cpu()函数，
+    // 不同于卷积层每个卷积核才有一个偏置参数，全连接层是每个输出元素就对应有一个偏置参数，共有l.outputs个，每次循环将求完一张图片所有输出的偏置更新值。
+    // l.bias_updates虽然没有明显的初始化操作，但其在make_connected_layer()中是用calloc()动态分配内存的，因此其已经全部初始化为0值。
+    // 循环结束后，最终会把每一张图的偏置更新值叠加，因此，最终l.bias_updates中每一个元素的值是batch中所有图片对应输出元素偏置更新值的叠加。
     for(i = 0; i < l.batch; ++i){
         axpy_cpu(l.outputs, 1, l.delta + i*l.outputs, 1, l.bias_updates, 1);
     }
@@ -177,14 +245,27 @@ void backward_connected_layer(connected_layer l, network net)
         normalize_delta_cpu(l.x, l.mean, l.variance, l.mean_delta, l.variance_delta, l.batch, l.outputs, 1, l.delta);
     }
 
+    // 计算当前全连接层的权重更新值
     int m = l.outputs;
     int k = l.batch;
     int n = l.inputs;
     float *a = l.delta;
     float *b = net.input;
     float *c = l.weight_updates;
+
+    // a：当前全连接层敏感度图，维度为l.batch*l.outputs
+    // b：当前全连接层所有输入，维度为l.batch*l.inputs
+    // c：当前全连接层权重更新值，维度为l.outputs*l.inputs（权重个数）
+    // 由行列匹配规则可知，需要将a转置，故而调用gemm_tn()函数，转置a实际上是想把batch中所有图片的影响叠加。
+    // 全连接层的权重更新值的计算也相对简单，简单的矩阵乘法即可完成：当前全连接层的敏感度图乘以当前层的输入即可得到当前全连接层的权重更新值，
+    // （当前层的敏感度是误差函数对于加权输入的导数，所以再乘以对应输入值即可得到权重更新值）
+    // m：a'的行，值为l.outputs，含义为每张图片输出的元素个数
+    // n：b的列数，值为l.inputs，含义为每张输入图片的元素个数
+    // k：a’的列数，值为l.batch，含义为一个batch中含有的图片张数
+    // 最终得到的c维度为l.outputs*l.inputs，对应所有权重的更新值
     gemm(1,0,m,n,k,1,a,m,b,n,1,c,n);
 
+    // 由当前全连接层计算上一层的敏感度图（完成绝大部分计算：当前全连接层敏感度图乘以当前层还未更新的权重）
     m = l.batch;
     k = l.outputs;
     n = l.inputs;
@@ -193,6 +274,16 @@ void backward_connected_layer(connected_layer l, network net)
     b = l.weights;
     c = net.delta;
 
+    // 一定注意此时的c等于net.delta，已经在network.c中的backward_network()函数中赋值为上一层的delta
+    // a：当前全连接层敏感度图，维度为l.batch*l.outputs
+    // b：当前层权重（连接当前层与上一层），维度为l.outputs*l.inputs
+    // c：上一层敏感度图（包含整个batch），维度为l.batch*l.inputs
+    // 由行列匹配规则可知，不需要转置。由全连接层敏感度图计算上一层的敏感度图也很简单，直接利用矩阵相乘，将当前层l.delta与当前层权重相乘就可以了，
+    // 只需要注意要不要转置，拿捏好就可以，不需要像卷积层一样，需要对权重或者输入重排！
+    // m：a的行，值为l.batch，含义为一个batch中含有的图片张数
+    // n：b的列数，值为l.inputs，含义为每张输入图片的元素个数
+    // k：a的列数，值为l.outputs，含义为每张图片输出的元素个数
+    // 最终得到的c维度为l.bacth*l.inputs（包含所有batch）
     if(c) gemm(0,0,m,n,k,1,a,k,b,n,1,c,n);
 }
 

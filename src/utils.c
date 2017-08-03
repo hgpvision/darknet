@@ -505,6 +505,9 @@ float *parse_fields(char *line, int n)
     return field;
 }
 
+/*
+** 将以a为首地址此后n个元素相加，返回总和
+*/
 float sum_array(float *a, int n)
 {
     int i;

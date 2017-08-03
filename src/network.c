@@ -183,16 +183,30 @@ network make_network(int n)
     return net;
 }
 
+/*
+** 前向计算网络net每一层的输出
+** 流程：遍历net的每一层网络，从第0层到最后一层，逐层计算每层的输出
+*/
 void forward_network(network net)
 {
     int i;
+    // 遍历所有层，从第一层到最后一层，逐层进行前向传播
     for(i = 0; i < net.n; ++i){
+        // 置网络当前活跃层为当前层，即第i层
         net.index = i;
+        // 获取当前层
         layer l = net.layers[i];
+        // 如果当前层的l.delta已经动态分配了内存，则调用fill_cpu()函数，将其所有元素的值初始化为0
         if(l.delta){
+            // 第一个参数为l.delta的元素个数，第二个参数为初始化值，为0
             fill_cpu(l.outputs * l.batch, 0, l.delta, 1);
         }
+
+        // 前向传播
         l.forward(l, net);
+
+        // 置网络的输入为当前层的输出（这将成为下一层网络的输入），要注意的是，此处是直接更改指针变量net.input本身的值，没有改变所指的内容的值，
+        // 所以在退出forward_network()函数后，其对net.input的改变都将失效，net.input将回到
         net.input = l.output;
         if(l.truth) {
             net.truth = l.output;
@@ -233,21 +247,38 @@ int get_predicted_class_network(network net)
     return max_index(net.output, net.outputs);
 }
 
+/*
+** 反向计算网络net每一层的敏感度图，并进而计算每一层的权重、偏置更新值，最后完成每一层权重与偏置更新
+** 流程：遍历net的每一层网络，从最后一层到第一层（此处所指的第一层不是指输入层，而是与输入层直接相连的第一层隐含层），反向传播
+*/
 void backward_network(network net)
 {
     int i;
+    // 在进行反向之前，先保存一下原先的net，下面会用到orig的input
     network orig = net;
     for(i = net.n-1; i >= 0; --i){
         layer l = net.layers[i];
         if(l.stopbackward) break;
+        // i = 0时，也即已经到了网络的第1层（或者说第0层，看个人习惯了～）了，就是直接与输入层相连的第一层隐含层（注意不是输入层，我理解的输入层就是指输入的图像数据，
+        // 严格来说，输入层不算一层网络，因为输入层没有训练参数，也没有激活函数），这个时候，不需要else中的赋值，1）对于第1层来说，其前面已经没有网络层了（输入层不算），
+        // 因此没有必要再计算前一层的参数，故没有必要在获取上一层；2）第一层的输入就是图像输入，也即整个net最原始的输入，在开始进行反向传播之前，已经用orig变量保存了
+        // 最为原始的net，所以net.input就是第一层的输入，不需要通过net.input=prev.output获取上一层的输出作为当前层的输入；3）同1），第一层之前已经没有层了，
+        // 也就不需要计算上一层的delta，即不需要再将net.delta链接到prev.delta，此时进入到l.backward()中后，net.delta就是NULL（可以参看network.h中关于delta
+        // 的注释），也就不会再计算上一层的敏感度了（比如卷积神经网络中的backward_convolutional_layer()函数）
         if(i == 0){
             net = orig;
         }else{
+            // 获取上一层
             layer prev = net.layers[i-1];
+            // 上一层的输出作为当前层的输入（下面l.backward()会用到，具体是在计算当前层权重更新值时要用到）
             net.input = prev.output;
+            // 上一层的敏感度图（l.backward()会同时计算上一层的敏感度图）
             net.delta = prev.delta;
         }
+        // 置网络当前活跃层为当前层，即第i层
         net.index = i;
+        // 反向计算第i层的敏感度图、权重及偏置更新值，并更新权重、偏置（同时会计算上一层的敏感度图，
+        // 存储在net.delta中，但是还差一个环节：乘上上一层输出对加权输入的导数，也即上一层激活函数对加权输入的导数）
         l.backward(l, net);
     }
 }
@@ -258,7 +289,9 @@ float train_network_datum(network net)
 #ifdef GPU
     if(gpu_index >= 0) return train_network_datum_gpu(net);
 #endif
+    // 更新目前已经处理的图片数量：每次处理一个batch，故直接添加l.batch
     *net.seen += net.batch;
+    // 标记处于训练阶段
     net.train = 1;
     forward_network(net);
     backward_network(net);
@@ -281,8 +314,19 @@ float train_network_sgd(network net, data d, int n)
     return (float)sum/(n*batch);
 }
 
+/*
+** 训练一个batch（此处所指一个batch含有的图片是配置文件中真实指定的一个batch中含有的图片数量，也即图片张数为：net.batch*net.subdivision）
+** 输入： net     已经构建好待训练的整个网络
+**       d       此番训练所用到的所有图片数据（包含net.batch*net.subdivision张图片）
+** 说明：train_network()函数对应处理ngpu=1的情况，如果有多个gpu，那么会首先调用train_networks()函数，在其之中会调用get_data_part()
+**      将在detector.c train_detector()函数中读入的net.batch*net.subdivision*ngpu张图片平分至每个gpu上，
+**      而后再调用train_network()，总之最后train_work()的输入d中只包含net.batch*net.subdivision张图片
+*/
 float train_network(network net, data d)
 {
+    // 事实上对于图像检测而言，d.X.rows/net.batch=net.subdivision，因此恒有d.X.rows % net.batch == 0，且下面的n就等于net.subdivision
+    // （可以参看detector.c中的train_detector()），因此对于图像检测而言，下面三句略有冗余，但对于其他种情况（比如其他应用，非图像检测甚至非视觉情况），
+    // 不知道是不是这样
     assert(d.X.rows % net.batch == 0);
     int batch = net.batch;
     int n = d.X.rows / batch;
@@ -290,7 +334,13 @@ float train_network(network net, data d)
     int i;
     float sum = 0;
     for(i = 0; i < n; ++i){
+        // 从d中读取batch张图片到net.input中，进行训练
+        // 第一个参数d包含了net.batch*net.subdivision张图片的数据，第二个参数batch即为每次循环读入到net.input也即参与train_network_datum()
+        // 训练的图片张数，第三个参数为在d中的偏移量，第四个参数为网络的输入数据，第五个参数为输入数据net.input对应的标签数据（真实数据）
         get_next_batch(d, batch, i*batch, net.input, net.truth);
+
+        // 训练网络：本次训练的数据共有net.batch张图片。
+        // 训练包括一次前向过程：计算每一层网络的输出并计算cost；一次反向过程：计算敏感度、权重更新值、偏置更新值；适时更新过程：更新权重与偏置
         float err = train_network_datum(net);
         sum += err;
     }
