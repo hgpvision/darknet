@@ -812,8 +812,8 @@ data load_data_swag(char **paths, int n, int classes, float jitter)
 /*
 ** 可以参考，看一下对图像进行jitter处理的各种效果:
 ** https://medium.com/@vivek.yadav/dealing-with-unbalanced-data-generating-additional-data-by-jittering-the-original-image-7497fe2119c3
-** 从所有训练图片中，随机读取n张，并对这n张图片进行数据增强，同时矫正增强后的数据标签信息。最终得到的图片的宽高为w,h（原始图片尺寸不定），也就是网络能够处理的图片尺寸，数据增强包括：
-** 对原始图片进行宽高方向上的插值缩放（两方向上缩放系数不一定相同），下面称之为缩放抖动；随机抠取或者平移图片（位置抖动）；
+** 从所有训练图片中，随机读取n张，并对这n张图片进行数据增强，同时矫正增强后的数据标签信息。最终得到的图片的宽高为w,h（原始训练集中的图片尺寸不定），也就是网络能够处理的图片尺寸，
+** 数据增强包括：对原始图片进行宽高方向上的插值缩放（两方向上缩放系数不一定相同），下面称之为缩放抖动；随机抠取或者平移图片（位置抖动）；
 ** 在hsv颜色空间增加噪声（颜色抖动）；左右水平翻转，不含旋转抖动。
 ** 输入： n         一个线程读入的图片张数（详见函数内部注释）
 **       paths     所有训练图片所在路径集合，是一个二维数组，每一行对应一张图片的路径（将在其中随机取n个）
@@ -829,6 +829,8 @@ data load_data_swag(char **paths, int n, int classes, float jitter)
 ** 返回： data类型数据，包含一个线程读入的所有图片数据（含有n张图片）
 ** 说明： 最后四个参数用于数据增强，主要对原图进行缩放抖动，位置抖动（平移）以及颜色抖动（颜色值增加一定噪声），抖动一定程度上可以理解成对图像增加噪声。
 **       通过对原始图像进行抖动，实现数据增强。最后三个参数具体用法参考本函数内调用的random_distort_image()函数
+** 说明2：从此函数可以看出，darknet对训练集中图片的尺寸没有要求，可以是任意尺寸的图片，因为经该函数处理（缩放/裁剪）之后，
+**       不管是什么尺寸的照片，都会统一为网络训练使用的尺寸
 */
 data load_data_detection(int n, char **paths, int m, int w, int h, int boxes, int classes, float jitter, float hue, float saturation, float exposure)
 {

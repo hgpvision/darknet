@@ -169,7 +169,7 @@ void forward_connected_layer(connected_layer l, network net)
     float *c = l.output;
 
     // a：全连接层的输入数据，维度为l.batch*l.inputs（包含整个batch的输入），可视作l.batch行，l.inputs列，每行就是一张输入图片
-    // b：全连接层的所有权重，维度为outputs*inputs
+    // b：全连接层的所有权重，维度为l.outputs*l.inputs(见make_connected_layer())
     // c：全连接层的所有输出（包含所有batch），维度为l.batch*l.outputs（包含整个batch的输出）
     // 根据维度匹配规则，显然需要对b进行转置，故而调用gemm_nt()函数，最终计算得到的c的维度为l.batch*l.outputs,
     // 全连接层的的输出很好计算，直接矩阵相承就可以了，所谓全连接，就是全连接层的输出与输入的每一个元素都有关联（当然是同一张图片内的，
@@ -365,9 +365,15 @@ void update_connected_layer_gpu(connected_layer l, int batch, float learning_rat
     scal_ongpu(l.inputs*l.outputs, momentum, l.weight_updates_gpu, 1);
 }
 
+/*
+** GPU版全连接层前向传播函数
+** 输入： l    当前全连接层
+**       net  整个网络
+*/
 void forward_connected_layer_gpu(connected_layer l, network net)
 {
     int i;
+    // 在GPU上并行初始化当前层的所有输出元素为0（包含整个batch图片的输出）
     fill_ongpu(l.outputs*l.batch, 0, l.output_gpu, 1);
 
     int m = l.batch;
@@ -376,6 +382,10 @@ void forward_connected_layer_gpu(connected_layer l, network net)
     float * a = net.input_gpu;
     float * b = l.weights_gpu;
     float * c = l.output_gpu;
+
+    // a维度为l.batch * l.inputs
+    // b维度为1.outputs * l.inputs(见make_connected_layer())
+    // c维度为l.batch * l.outputs
     gemm_ongpu(0,1,m,n,k,1,a,k,b,k,1,c,n);
     if(l.batch_normalize){
         forward_batchnorm_layer_gpu(l, net);

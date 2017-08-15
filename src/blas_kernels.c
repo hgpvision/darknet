@@ -3,6 +3,12 @@
 #include "cublas_v2.h"
 #include <assert.h>
 
+// 本文件中大量使用extern "C"关键字，关于这个关键字，推荐参考：
+// https://stackoverflow.com/questions/1041866/in-c-source-what-is-the-effect-of-extern-c
+// http://blog.csdn.net/xingjiarong/article/details/47656339
+// http://www.cnblogs.com/rollenholt/archive/2012/03/20/2409046.html
+// 关于第三条链接中提到C语言不支持extern "C"的声明应该是不正确的，第一条链接中的第二个回答就说明了在C中可以使用该声明，
+// 而且此处也是C文件，也使用了extern "C"的声明。不过话又说回来了，这里为什么要使用extern "C"的声明呢？有这个必要吗？值得思考一下！
 extern "C" {
 #include "blas.h"
 #include "cuda.h"
@@ -407,9 +413,32 @@ __global__ void scal_kernel(int N, float ALPHA, float *X, int INCX)
     if(i < N) X[i*INCX] *= ALPHA;
 }
 
+/*
+**  初始化X数组所有元素的值为ALPHA
+**  输入： N       X中包含的有效元素个数
+**        ALPHA   初始化的值
+**        X       待初始化的float数组指针
+**        INCX    步长（倍数步长），即X中凡是INCX的倍数编号进行初始化赋值操作
+**  说明：与fill_cpu()不同的是，此处是在GPU上并行完成的，也就是GPU上会同时用多个线程执行函数中的代码，
+**       具体会用多少个线程同时执行以下命令，取决于调用该核函数时的配置（包括分配多少个block，每个block有多少个线程）
+*/
 __global__ void fill_kernel(int N, float ALPHA, float *X, int INCX)
 {
+    // 获取线程ID：每个线程都有一个ID，线程的ID计算方式与分配给该核函数的配置及其存储方式（一维/二维/三维）有关
+    // 一个grid中有多个线程块blcok,成二维排列，
+    // blockIdx.x表示线程块在线程格grid中的列索引，
+    // blockIdx.y表示线程块在线程格grid中的行索引，
+    // gridDim.x为线程格中一行具有的线程块数，
+    // blockDim.x为线程块一行具有的线程个数;
+    // threadIdx.x为线程在一个block中的列索引，这里没有用到threadIdx.y是因为此处直接认为一个block中的所有线程直接存储在一维数组中，
+    // 而不是二维矩阵中，因此无需threadIdx.y
+    // 注意，CUDA中grid也好，block也好，都是按列存储的，也即如果是一个m*n的矩阵，那么第一列（不是行）的编号是从0~m-1，第二列接着往下排
     int i = (blockIdx.x + blockIdx.y*gridDim.x) * blockDim.x + threadIdx.x;
+
+    // 为什么要加if这个保护条件呢？用例子说明，比如在blas_kernels.c fill_ongpu()函数中，调用本函数时，使用cuda_gridsize()计算
+    // 应该配置的grid参数，在这个函数里面，配置的grid参数是比较粗糙的，不是很精确的，因为本身也没必要精确，只需做到尽量均匀就可以了，
+    // 可以看出这个函数最终配置的线程个数一般是大于N的，也就是线程个数要多于数据个数，所以就要添加if保护语句，不然就要越界了（X中元素个数就N个，
+    // 比如X为每层的输出l.output_gpu，在各层创建函数如make_connected_layer()中为output_gpu动态分配的元素个数就outputs*batch个）
     if(i < N) X[i*INCX] = ALPHA;
 }
 
@@ -625,8 +654,20 @@ extern "C" void supp_ongpu(int N, float ALPHA, float * X, int INCX)
     check_error(cudaPeekAtLastError());
 }
 
+/*
+** （GPU版矩阵）初始化X数组所有元素的值为ALPHA
+** 输入： N       X中包含的有效元素个数
+**        ALPHA   初始化的值
+**        X       待初始化的float数组指针
+**        INCX    步长（倍数步长），即X中凡是INCX的倍数编号进行初始化赋值操作
+** 说明：与fill_cpu()的区别是，这些赋值操作都是在GPU上并行完成的，会调用GPU核函数fill_kernel()执行,
+**      所谓核函数，就是指在CPU上调用，在GPU上执行的函数，此处fill_ongpu()函数是直接由cpu调用的，
+**      而fill_ongpu()又调用了fill_kernel()，因此对fill_kernel()来说，是被cpu调用，但执行会切换至GPU上进行。
+*/
 extern "C" void fill_ongpu(int N, float ALPHA, float * X, int INCX)
 {
+    // 调用核函数fill_kernel()完成矩阵元素初始赋值操作
+    // cuda_gridsize()用于计算grid的配置信息，详见其注释
     fill_kernel<<<cuda_gridsize(N), BLOCK>>>(N, ALPHA, X, INCX);
     check_error(cudaPeekAtLastError());
 }
