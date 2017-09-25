@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+
 /*
 ** 每前向传播一步后，都要调整下一时刻输出向量以及错误的起始位置
 ** 输入     l       指向当前RNN层的指针
