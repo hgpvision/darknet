@@ -7,6 +7,14 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+/*
+** 支持四种cost functions
+** L1    即误差的绝对值之和
+** SSE   即L2，误差的平方和（可以查看blas.c中的l2_cpu()函数，没有乘以1/2），为绝大部分网络采用,
+         全称应该是the sum of squares due to error（参考的：http://blog.sina.com.cn/s/blog_628033fa0100kjjy.html）
+** MASKED 目前只发现在darknet9000.cfg中使用
+** SMOOTH 
+*/
 COST_TYPE get_cost_type(char *s)
 {
     if (strcmp(s, "sse")==0) return SSE;

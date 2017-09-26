@@ -62,7 +62,7 @@ typedef struct network{
 
 
     float *input;       // 中间变量，用来暂存某层网络的输入（包含一个batch的输入，比如某层网络完成前向，将其输出赋给该变量，作为下一层的输入，可以参看network.c中的forward_network()与backward_network()两个函数），
-                        // 当然，也是网络接受最原始输入数据的变量（比如在图像检测训练中，最早在train_detector()->train_network()->get_next_batch()函数中赋值）
+                        // 当然，也是网络接受最原始输入数据（即第一层网络接收的输入）的变量（比如在图像检测训练中，最早在train_detector()->train_network()->get_next_batch()函数中赋值）
 
     float *truth;       // 中间变量，与上面的input对应，用来暂存input数据对应的标签数据（真实数据）
     

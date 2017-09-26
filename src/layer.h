@@ -301,7 +301,7 @@ struct layer{
     int batch;                  // 一个batch中含有的图片张数，等于net.batch，详细可以参考network.h中的注释，一般在构建具体网络层时赋值（比如make_maxpool_layer()中）
     int forced;
     int flipped;
-    int inputs;                 // 一张输入图片所含的元素个数，第一层的值等于l.h*l.w*l.c（一般在各网络层构建函数中赋值，比如make_connected_layer()），
+    int inputs;                 // 一张输入图片所含的元素个数（一般在各网络层构建函数中赋值，比如make_connected_layer()），第一层的值等于l.h*l.w*l.c，
                                 // 之后的每一层都是由上一层的输出自动推算得到的（参见parse_network_cfg()，在构建每一层后，会更新params.inputs为上一层的l.outputs）
                                 
     int outputs;                // 该层对应一张输入图片的输出元素个数（一般在各网络层构建函数中赋值，比如make_connected_layer()）
@@ -481,7 +481,7 @@ struct layer{
     float * output;             // 存储该层所有的输出，维度为l.out_h * l.out_w * l.out_c * l.batch，可知包含整个batch输入图片的输出，一般在构建具体网络层时动态分配内存（比如make_maxpool_layer()中）。
                                 // 按行存储：每张图片按行铺排成一大行，图片间再并成一行。
 
-    float * delta;              // 存储每一层的敏感度图：包含所有输出元素的敏感度值（整个batch所有图片）。所谓敏感度，即误差函数关于当前成每个加权输入的导数值，
+    float * delta;              // 存储每一层的敏感度图：包含所有输出元素的敏感度值（整个batch所有图片）。所谓敏感度，即误差函数关于当前层每个加权输入的导数值，
                                 // 关于敏感度图这个名称，可以参考https://www.zybuluo.com/hanbingtao/note/485480。
                                 // 元素个数为l.batch * l.outputs（其中l.outputs = l.out_h * l.out_w * l.out_c），
                                 // 对于卷积神经网络，在make_convolutional_layer()动态分配内存，按行存储，可视为l.batch行，l.outputs列，

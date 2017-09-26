@@ -92,6 +92,7 @@ connected_layer make_connected_layer(int batch, int inputs, int outputs, ACTIVAT
     l.backward_gpu = backward_connected_layer_gpu;
     l.update_gpu = update_connected_layer_gpu;
 
+    // 由下面forward_connected_layer_gpu()函数中调用的gemm_gpu()可以看出，l.weight_gpu应该理解为outputs行，inputs列
     l.weights_gpu = cuda_make_array(l.weights, outputs*inputs);
     l.biases_gpu = cuda_make_array(l.biases, outputs);
 
@@ -181,7 +182,11 @@ void forward_connected_layer(connected_layer l, network net)
 
     if(l.batch_normalize){
         if(net.train){
+            // 计算全连接层l.output中每个元素的的均值，得到的l.mean是一个维度为l.outputs的矢量，
+            // 也即全连接层每一个输出元素都有一个平均值（有batch张输入图片，需要计算这batch图片对应输出元素的平均值），
+            // 对全连接层而言，每个输出就是一个通道，且每张特征图的维度为1*1
             mean_cpu(l.output, l.batch, l.outputs, 1, l.mean);
+            // 计算全连接层每个输出元素的方差l,variance，其维度与l.mean一样
             variance_cpu(l.output, l.mean, l.batch, l.outputs, 1, l.variance);
 
             scal_cpu(l.outputs, .95, l.rolling_mean, 1);
@@ -383,9 +388,12 @@ void forward_connected_layer_gpu(connected_layer l, network net)
     float * b = l.weights_gpu;
     float * c = l.output_gpu;
 
-    // a维度为l.batch * l.inputs
-    // b维度为1.outputs * l.inputs(见make_connected_layer())
-    // c维度为l.batch * l.outputs
+    // a维度为l.batch * l.inputs，具体含义为输入（包含整个batch的输入）
+    // b维度为1.outputs * l.inputs(见make_connected_layer())，具体含义为当前全连接层与上一层之间的所有权重
+    // c维度为l.batch * l.outputs，为gemm_ongpu()的输出的结果：当前全连接层每个神经元的加权输入
+    // 因为要满足矩阵维度匹配原则，所以需要对b进行转置（当然你千万不要问我为什么b的维度是l.outputs*l.inputs，
+    // 而不是l.inputs*l.outputs，按照这里的调用，它就是这样的，我也没办法，所以理解过程其实是反过来的，
+    // 是根据这里的调用情况，推知b的维度，而不是由b的维度推知b是否需要转置）
     gemm_ongpu(0,1,m,n,k,1,a,k,b,k,1,c,n);
     if(l.batch_normalize){
         forward_batchnorm_layer_gpu(l, net);

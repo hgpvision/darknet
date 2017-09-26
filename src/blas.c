@@ -80,24 +80,68 @@ void shortcut_cpu(int batch, int w1, int h1, int c1, float *add, int w2, int h2,
     }
 }
 
+/*
+** 有组织的计算输入数据x的平均值，输出的mean是一个矢量，比如如果x是多张3通道的图片，那么mean的维度就为通道数3
+** （也即每张输入图片会得到3张特征图）,为方便，我们称这三个通道分别为第一，第二，第三通道，由于每次训练输入的都是一个batch的图片，
+** 因此最终会输出batch张三通道的图片，mean中的第一个元素就是第一个通道上全部batch张输出特征图所有元素的平均值，依次类推
+** 本函数的主要用处之一应该就是实现batch normalization的第一步了！
+** 输入： 
+**       x         包含所有数据，比如l.output，其包含的元素个数为l.batch*l.outputs
+**       batch     一个batch中包含的图片张数，即l.batch
+**       filters   该层神经网络的滤波器个数，也即该层网络输出图片的通道数（比如对卷积网络来说，就是核的个数了）
+**       spatial   该层神经网络每张输出特征图的尺寸，也即等于l.out_w*l.out_h
+**       mean      求得的平均值，维度为filters，也即每个滤波器对应有一个均值（每个滤波器会处理所有图片）
+** 说明： 该函数的具体调用可以参考：batchnorm_layer.c中的forward_batchnorm_layer()函数
+** 说明2：mean_cpu()函数是一个纯粹的数学计算函数，有组织的计算x中某些数据的均值，x的具体存储结构视具体情况而定，
+**       在写注释时，主要参考了batchnorm_layer.c中的forward_batchnorm_layer()函数对该函数的调用，
+**       因此有些注释就加上了一些具体含义，结合这些含义会有助于理解，但还是要记住，这是一个一般的数学计算函数，
+**       不同地方调用该函数可能有不同的含义。
+** 说明3：均值是哪些数据的均值？x中包含了众多数据，mean中的每个元素究竟对应x中哪些数据的平均值呢？
+**       此处还是结合batchnorm_layer.c中的forward_batchnorm_layer()函数的调用来解释，
+**       其中的x为l.output，有l.batch行，每行有l.out_c*l.out_w*l.out_h个元素，每一行又可以分成
+**       l.out_c行，l.out_w*l.out_h列，那么l.mean中的每一个元素，是某一个通道上所有batch的输出的平均值
+**       （比如卷积层，有3个核，那么输出通道有3个，每张输入图片都会输出3张特征图，可以理解每张输出图片是3通道的，
+**       若每次输入batch=64张图片，那么将会输出64张3通道的图片，而mean中的每个元素就是某个通道上所有64张图片
+**       所有元素的平均值，比如第1个通道上，所有64张图片像素平均值）
+** 说明4：在全连接层的前向传播函数中：sptial=1，因为全连接层的输出可以看作是1*1的特征图
+*/
 void mean_cpu(float *x, int batch, int filters, int spatial, float *mean)
 {
+    // scale即求均值中的分母项
     float scale = 1./(batch * spatial);
     int i,j,k;
+    // 外层循环次数为filters，也即mean的维度，每次循环将得到一个平均值
     for(i = 0; i < filters; ++i){
         mean[i] = 0;
+        // 中层循环次数为batch，也即叠加每张输入图片对应的某一通道上的输出
         for(j = 0; j < batch; ++j){
+            // 内层循环即叠加一张输出特征图的所有像素值
             for(k = 0; k < spatial; ++k){
+                // 如果理解了上面的注释，下面的偏移是很显然的
                 int index = j*filters*spatial + i*spatial + k;
                 mean[i] += x[index];
             }
         }
+        // 除以该均值所涉及元素的总个数，得到平均值
         mean[i] *= scale;
     }
 }
 
+/*
+** 计算输入x中每个元素的方差（大致的过程和上面的mean_cpu类似，不再赘述）
+** 本函数的主要用处之一应该就是batch normalization的第二步了！
+** 输入： 
+**       x         包含所有数据，比如l.output，其包含的元素个数为l.batch*l.outputs
+**       batch     一个batch中包含的图片张数，即l.batch
+**       filters   该层神经网络的滤波器个数，也即该层网络输出图片的通道数（比如对卷积网络来说，就是核的个数了）
+**       spatial   该层神经网络每张输出特征图的尺寸，也即等于l.out_w*l.out_h
+**       mean      求得的平均值，维度为filters，也即每个滤波器对应有一个均值（每个滤波器会处理所有图片）
+*/
 void variance_cpu(float *x, float *mean, int batch, int filters, int spatial, float *variance)
 {
+    // 为什么计算方差分母要减去1呢？参考这里吧：https://www.zhihu.com/question/20983193
+    // 事实上，在统计学中，往往采用的方差计算公式都会让分母减1,这时因为所有数据的方差是基于均值这个固定点来计算的，
+    // 对于有n个数据的样本，在均值固定的情况下，其采样自由度为n-1（只要n-1个数据固定，第n个可以由均值推出）
     float scale = 1./(batch * spatial - 1);
     int i,j,k;
     for(i = 0; i < filters; ++i){
@@ -105,6 +149,7 @@ void variance_cpu(float *x, float *mean, int batch, int filters, int spatial, fl
         for(j = 0; j < batch; ++j){
             for(k = 0; k < spatial; ++k){
                 int index = j*filters*spatial + i*spatial + k;
+                // 每个元素减去均值求平方
                 variance[i] += pow((x[index] - mean[i]), 2);
             }
         }
@@ -217,7 +262,15 @@ void l1_cpu(int n, float *pred, float *truth, float *delta, float *error)
 }
 
 /*
-** 
+** 计算预测数组与真实标签数组中每对元素的l2范数值，或者说是计算squared error，
+** 注意此函数，并没有求和，没有将所有误差加起来，而是对网络输出的每个元素计算误差的平方值
+** 输入：n       输出元素个数，也即pred中的元素个数，也是truth中的元素个数
+**      pred    网络最终的输出值，或者说网络的预测值，其中输出元素个数为n（也即最后一层网络神经元个数为n）
+**      truth   真实标签值，其中元素个数为n（也即最后一层网络神经元个数为n）
+**      delta   相当于本函数的输出，为网络的敏感度图（一般为cost_layer.c的敏感度图）
+**      error   相当于本函数的输出，包含每个输出元素的squared error
+** 说明：这个函数一般被cost_layer.c调用，用于计算cost_layer每个输出的均方误差，除此之外，还有一个重要的操作，
+**      就是计算网络最后一层的敏感度图，在darknet中，最后一层比较多的情况是cost_l
 */
 void l2_cpu(int n, float *pred, float *truth, float *delta, float *error)
 {
@@ -244,7 +297,7 @@ float dot_cpu(int N, float *X, int INCX, float *Y, int INCY)
 **       stride  跨度
 **       output  这一组输入图片数据对应的输出（也即l.output中与这一组输入对应的某一部分）
 ** 说明：本函数实现的就是标准的softmax函数处理，唯一有点变化的就是在做指数运算之前，将每个输入元素减去了该组输入元素中的最大值，以增加数值稳定性，
-**      关于此，可以参加博客：http://freemind.pluskid.org/machine-learning/softmax-vs-softmax-loss-numerical-stability/，
+**      关于此，可以参考博客：http://freemind.pluskid.org/machine-learning/softmax-vs-softmax-loss-numerical-stability/，
 **      这篇博客写的不错，博客中还提到了softmax-loss，此处没有实现（此处实现的也即博客中提到的softmax函数，将softmax-loss分开实现了）。
 */
 void softmax(float *input, int n, float temp, int stride, float *output)
