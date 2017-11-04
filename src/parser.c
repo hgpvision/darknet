@@ -793,6 +793,7 @@ network parse_network_cfg(char *filename)
         l.smooth = option_find_float_quiet(options, "smooth", 0);
         option_unused(options);
         net.layers[count] = l;
+        //这里就是为workspace 做最大化的操作 -merlin
         if (l.workspace_size > workspace_size) workspace_size = l.workspace_size;
         free_section(s);
         n = n->next;
@@ -804,7 +805,7 @@ network parse_network_cfg(char *filename)
             params.c = l.out_c;
             params.inputs = l.outputs;
         }
-    }   
+    }  
     free_list(sections);
     layer out = get_network_output_layer(net);
     net.outputs = out.outputs;
@@ -1244,7 +1245,7 @@ void load_weights_upto(network *net, char *filename, int start, int cutoff)
     fprintf(stderr, "Done!\n");
     fclose(fp);
 }
-
+//从.weights中读取权重的操作
 void load_weights(network *net, char *filename)
 {
     load_weights_upto(net, filename, 0, net->n);
