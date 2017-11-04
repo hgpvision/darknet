@@ -320,7 +320,10 @@ struct layer{
                                 // 对于卷积层，可由上面的h,w,c以及卷积核尺寸、跨度计算出；对于全连接层，out_h,out_w的值直接置为1,
                                 // out_c直接置为l.outputs（参见make_connected_layer()）
 
-    int n;                      // 卷积核个数，等于out_c
+    int n;                      // 对于卷积层，该参数表示卷积核个数，等于out_c，其值由网络配置文件指定；对于region_layerc层，该参数等于配置文件中的num值
+                                // (该参数通过make_region_layer()函数赋值，而在parser.c中调用的make_region_layer()函数)，
+                                // 可以在darknet/cfg文件夹下执行命令：grep num *.cfg便可以搜索出所有设置了num参数的网络，这里面包括yolo.cfg等，其值有
+                                // 设定为3,5,2的。
     int max_boxes;              // 每张图片最多处理的矩形框数（参看：data.c中的load_data_detection()）
 
     int groups;                 // 这个参数目前仅发现用在softmax_layer中，含义是将一张图片的数据分成几组，具体的值由网络配置文件指定，如未指定默认为1（见parse_softmax()），
@@ -350,8 +353,13 @@ struct layer{
     float ratio;
     float learning_rate_scale;
     int softmax;
-    int classes;
-    int coords;
+    int classes;                // 物体类别种数，一个训练好的网络，只能检测指定所有物体类别中的物体，比如yolo9000.cfg，设置该值为9418，
+                                // 也就是该网络训练好了之后可以检测9418种物体。该参数由网络配置文件指定。目前在作者给的例子中，
+                                // 有设置该值的配置文件大都是检测模型，纯识别的网络模型没有设置该值，我想是因为检测模型输出的一般会为各个类别的概率，
+                                // 所以需要知道这个种类数目，而识别的话，不需要知道某个物体属于这些所有类的具体概率，因此可以不知道。
+    int coords;                 // 这个参数一般用在检测模型中，且不是所有层都有这个参数，一般在检测模型最后一层有，比如region_layer层，该参数的含义
+                                // 是定位一个物体所需的参数个数，一般为4个，包括物体所在矩形框中心坐标x,y两个参数以及矩形框长宽w,h两个参数，
+                                // 可以在darknet/cfg文件夹下，执行grep coords *.cfg，会搜索出所有使用该参数的模型，并可看到该值都设置位4
     int background;
     int rescore;
     int objectness;
@@ -397,7 +405,8 @@ struct layer{
     int   * input_layers;
     int   * input_sizes;
     int   * map;
-    float * cost;
+    float * cost;             // 目标函数值，该参数不是所有层都有的，一般在网络最后一层拥有，用于计算最后的cost，比如识别模型中的cost_layer层，
+                              // 检测模型中的region_layer层
 
     float * spatial_mean;
 

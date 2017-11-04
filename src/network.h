@@ -76,7 +76,7 @@ typedef struct network{
                         // （这些参数马上就会参与卷积运算），一旦用完，就会被马上更新（因此该变量的值的更新频率比较大）
     int train;          // 标志参数，网络是否处于训练阶段，如果是，则值为1（这个参数一般用于训练与测试有不同操作的情况，比如dropout层，对于训练，才需要进行forward_dropout_layer()函数，对于测试，不需要进入到该函数）
     int index;          // 标志参数，当前网络的活跃层（活跃包括前向和反向，可参考network.c中forward_network()与backward_network()函数）
-    float *cost;
+    float *cost;        
 
     #ifdef GPU
     float *input_gpu;

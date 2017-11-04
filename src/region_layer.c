@@ -14,17 +14,18 @@ layer make_region_layer(int batch, int w, int h, int n, int classes, int coords)
     layer l = {0};
     l.type = REGION;
 
+    // 以下众多参数含义参考layer.h中的注释
     l.n = n;
     l.batch = batch;
     l.h = h;
     l.w = w;
     l.c = n*(classes + coords + 1);
-    l.out_w = l.w;
+    l.out_w = l.w;                                          // region_layer层的输入和输出尺寸一致，通道数也一样，也就是这一层并不改变输入数据的维度
     l.out_h = l.h;
     l.out_c = l.c;
-    l.classes = classes;
-    l.coords = coords;
-    l.cost = calloc(1, sizeof(float));
+    l.classes = classes;                                    // 物体类别种数（训练数据集中所拥有的物体类别总数）
+    l.coords = coords;                                      // 定位一个物体所需的参数个数（一般值为4,包括矩形中心点坐标x,y以及长宽w,h）
+    l.cost = calloc(1, sizeof(float));                      // 目标函数值，为单精度浮点型指针
     l.biases = calloc(n*2, sizeof(float));
     l.bias_updates = calloc(n*2, sizeof(float));
     l.outputs = h*w*n*(classes + coords + 1);
@@ -142,6 +143,11 @@ int entry_index(layer l, int batch, int location, int entry)
 }
 
 void softmax_tree(float *input, int batch, int inputs, float temp, tree *hierarchy, float *output);
+
+
+/**
+ * 
+ */
 void forward_region_layer(const layer l, network net)
 {
     int i,j,b,t,n;
@@ -428,6 +434,9 @@ void get_region_boxes(layer l, int w, int h, int netw, int neth, float thresh, f
 
 #ifdef GPU
 
+/**
+ * 
+ */
 void forward_region_layer_gpu(const layer l, network net)
 {
     copy_ongpu(l.batch*l.inputs, net.input_gpu, 1, l.output_gpu, 1);
