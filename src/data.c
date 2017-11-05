@@ -59,6 +59,8 @@ char **get_random_paths(char **paths, int n, int m)
     pthread_mutex_lock(&mutex);
     for(i = 0; i < n; ++i){
         // 随机产生索引：随机读入图片路径
+        
+        //随意读取图片的目的：举个例子：一般的训练集都是猫的图片在一起，狗的图片在一起，如果不随机读取，就是一个或者几个batch都是猫或者狗，容易过拟合同时泛化能力也差
         int index = rand()%m;
         random_paths[i] = paths[index];
         //if(i == 0) printf("%s\n", paths[index]);
