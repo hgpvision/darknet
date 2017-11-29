@@ -14,18 +14,18 @@ layer make_region_layer(int batch, int w, int h, int n, int classes, int coords)
     layer l = {0};
     l.type = REGION;
 
-    // 以下众多参数含义参考layer.h中的注释
+    /// 以下众多参数含义参考layer.h中的注释
     l.n = n;
     l.batch = batch;
     l.h = h;
     l.w = w;
     l.c = n*(classes + coords + 1);
-    l.out_w = l.w;                                          // region_layer层的输入和输出尺寸一致，通道数也一样，也就是这一层并不改变输入数据的维度
+    l.out_w = l.w;                                          ///< region_layer层的输入和输出尺寸一致，通道数也一样，也就是这一层并不改变输入数据的维度
     l.out_h = l.h;
     l.out_c = l.c;
-    l.classes = classes;                                    // 物体类别种数（训练数据集中所拥有的物体类别总数）
-    l.coords = coords;                                      // 定位一个物体所需的参数个数（一般值为4,包括矩形中心点坐标x,y以及长宽w,h）
-    l.cost = calloc(1, sizeof(float));                      // 目标函数值，为单精度浮点型指针
+    l.classes = classes;                                    ///< 物体类别种数（训练数据集中所拥有的物体类别总数）
+    l.coords = coords;                                      ///< 定位一个物体所需的参数个数（一般值为4,包括矩形中心点坐标x,y以及长宽w,h）
+    l.cost = calloc(1, sizeof(float));                      ///< 目标函数值，为单精度浮点型指针
     l.biases = calloc(n*2, sizeof(float));
     l.bias_updates = calloc(n*2, sizeof(float));
     l.outputs = h*w*n*(classes + coords + 1);
@@ -189,9 +189,21 @@ void forward_region_layer(const layer l, network net)
     for (b = 0; b < l.batch; ++b) {
         if(l.softmax_tree){
             int onlyclass = 0;
+            /// 循环30次，每张图片固定处理30个矩形框
             for(t = 0; t < 30; ++t){
+                /// 通过移位来获取每一个真实矩形框的信息，net.truth存储了网络吞入的所有图片的真实矩形框信息（一次吞入一个batch的训练图片），
+                /// net.truth作为这一个大数组的首地址，l.truths参数是每一张图片含有的真实值参数个数（可参考layer.h中的truths参数中的注释），
+                /// b是batch中已经处理完图片的图片的张数，5是每个真实矩形框需要5个参数值（也即每条矩形框真值有5个参数），t是本张图片已经处理
+                /// 过的矩形框的个数（每张图片最多处理30张图片），明白了上面的参数之后对于下面的移位获取对应矩形框真实值的代码就不难了。
                 box truth = float_to_box(net.truth + t*5 + b*l.truths, 1);
+
+                /// 这个if语句是用来判断一下是否有读到真实矩形框值（每个矩形框有5个参数,float_to_box只读取其中的4个定位参数，
+                /// 只要验证x的值不为0,那肯定是4个参数值都读取到了，要么全部读取到了，要么一个也没有），另外，因为程序中写死了每张图片处理30个矩形框，
+                /// 那么有些图片没有这么多矩形框，就会出现没有读到的情况。
                 if(!truth.x) break;
+
+                /// float_to_box()中没有读取矩形框中包含的物体类别编号的信息，就在此处获取。（darknet中，物体类别标签值为编号，
+                /// 每一个类别都有一个编号值，这些物体具体的字符名称存储在一个文件中，如data/*.names文件，其所在行数就是其编号值）
                 int class = net.truth[t*5 + b*l.truths + 4];
                 float maxp = 0;
                 int maxi = 0;
@@ -225,10 +237,24 @@ void forward_region_layer(const layer l, network net)
                     int box_index = entry_index(l, b, n*l.w*l.h + j*l.w + i, 0);
                     box pred = get_region_box(l.output, l.biases, n, box_index, i, j, l.w, l.h, l.w*l.h);
                     float best_iou = 0;
+
+                    //// 为什么这里总是看到30？查看layer.h中关于max_boxes变量的注释就知道了，每张图片最多能够处理30个框
                     for(t = 0; t < 30; ++t){
+                        /// 通过移位来获取每一个真实矩形框的信息，net.truth存储了网络吞入的所有图片的真实矩形框信息（一次吞入一个batch的训练图片），
+                        /// net.truth作为这一个大数组的首地址，l.truths参数是每一张图片含有的真实值参数个数（可参考layer.h中的truths参数中的注释），
+                        /// b是batch中已经处理完图片的图片的张数，5是每个真实矩形框需要5个参数值（也即每条矩形框真值有5个参数），t是本张图片已经处理
+                        /// 过的矩形框的个数（每张图片最多处理30张图片），明白了上面的参数之后对于下面的移位获取对应矩形框真实值的代码就不难了。
                         box truth = float_to_box(net.truth + t*5 + b*l.truths, 1);
+
+                        /// 这个if语句是用来判断一下是否有读到真实矩形框值（每个矩形框有5个参数,float_to_box只读取其中的4个定位参数，
+                        /// 只要验证x的值不为0,那肯定是4个参数值都读取到了，要么全部读取到了，要么一个也没有），另外，因为程序中写死了每张图片处理30个矩形框，
+                        /// 那么有些图片没有这么多矩形框，就会出现没有读到的情况。
                         if(!truth.x) break;
+
+                        /// 获取完真实矩形定位坐标后，与预测的矩形框求IoU，具体参考box_iou()函数注释
                         float iou = box_iou(pred, truth);
+
+                        /// 找出最大的IoU值
                         if (iou > best_iou) {
                             best_iou = iou;
                         }
@@ -296,6 +322,10 @@ void forward_region_layer(const layer l, network net)
             }
 
             int class = net.truth[t*5 + b*l.truths + 4];
+
+            /// 参考layer.h中关于map的注释：将coco数据集的物体类别编号，变换至在联合9k数据集中的物体类别编号，
+            /// 如果l.map不为NULL，说明使用了yolo9000检测模型，其他模型不用这个参数（没有联合多个数据集训练），
+            /// 目前只有yolo9000.cfg中设置了map文件所在路径。
             if (l.map) class = l.map[class];
             int class_index = entry_index(l, b, best_n*l.w*l.h + j*l.w + i, 5);
             delta_region_class(l.output, l.delta, class_index, class, l.classes, l.softmax_tree, l.class_scale, l.w*l.h, &avg_cat);

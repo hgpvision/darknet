@@ -11,6 +11,9 @@ typedef struct network network;
 struct layer;
 typedef struct layer layer;
 
+/** 
+ * 网络结构类型（枚举类型），对应的整型值由CONVOLUTIONAL从0开始往下编号，共24中网络类型（最后一个对应的整型值为23）.
+*/
 typedef enum {
     CONVOLUTIONAL,
     DECONVOLUTIONAL,
@@ -310,7 +313,9 @@ struct layer{
     int nweights;
     int nbiases;
     int extra;
-    int truths;
+    int truths;                 ///< 根据region_layer.c判断，这个变量表示一张图片含有的真实值的个数，对于检测模型来说，一个真实的标签含有5个值，
+                                ///< 包括类型对应的编号以及定位矩形框用到的w,h,x,y四个参数，且在darknet中，固定每张图片最大处理30个矩形框（可查看max_boxes参数），
+                                ///< 因此，在region_layer.c的make_region_layer()函数中，赋值为30*5
     int h,w,c;                  // 该层输入图片的高、宽、通道数（一般在各网络层构建函数中赋值，比如make_connected_layer()），
                                 // 第一层网络的h,w,c就是网络初始能够的接收的图片尺寸，而后每一层的h,w,c都与自动匹配上一层相应的输出参数，
                                 // 不再需要配置文件指定（参见parse_network_cfg()，在构建每一层后，会更新params.h,params.w,params.c及params.inputs为上一层相应的输出参数），
@@ -324,7 +329,7 @@ struct layer{
                                 // (该参数通过make_region_layer()函数赋值，而在parser.c中调用的make_region_layer()函数)，
                                 // 可以在darknet/cfg文件夹下执行命令：grep num *.cfg便可以搜索出所有设置了num参数的网络，这里面包括yolo.cfg等，其值有
                                 // 设定为3,5,2的。
-    int max_boxes;              // 每张图片最多处理的矩形框数（参看：data.c中的load_data_detection()）
+    int max_boxes;              // 每张图片最多处理的矩形框数（参看：data.c中的load_data_detection()，其输入参数boxes就是指这个参数）
 
     int groups;                 // 这个参数目前仅发现用在softmax_layer中，含义是将一张图片的数据分成几组，具体的值由网络配置文件指定，如未指定默认为1（见parse_softmax()），
                                 // 很多网络都将该值设置为1，相当于没用到该值，我想这可能跟分类与分割粒度有关（如果粒度细些，估计会大于1,当然这只是个人猜测）
@@ -404,7 +409,18 @@ struct layer{
 
     int   * input_layers;
     int   * input_sizes;
-    int   * map;
+
+    /** 
+     * 这个参数用的不多，仅在region_layer.c中使用，该参数的作用是用于不同数据集间类别编号的转换，更为具体的，
+     * 是coco数据集中80类物体编号与联合数据集中9000+物体类别编号之间的转换，可以对比查看data/coco.names与
+     * data/9k.names以及data/coco9k.map三个文件（旧版的darknet可能没有，新版的darknet才有coco9k.map这个文件），
+     * 可以发现，coco.names中每一个物体类别都可以在9k.names中找到,且coco.names中每个物体类别名称在9k.names
+     * 中所在的行数就是coco9k.map中的编号值（减了1,因为在程序数组中编号从0开始），也就是这个map将coco数据集中
+     * 的类别编号映射到联和数据集9k中的类别编号（这个9k数据集是一个联和多个数据集的大数集，其名称分类被层级划分，
+     * ）（注意两个文件中物体的类别名称大部分都相同，有小部分存在小差异，虽然有差异，但只是两个数据集中使用的名称有所差异而已，
+     * 对应的物体是一样的，比如在coco.names中摩托车的名称为motorbike，在联合数据集9k.names，其名称为motorcycle）.                   
+    */
+    int   * map;              
     float * cost;             // 目标函数值，该参数不是所有层都有的，一般在网络最后一层拥有，用于计算最后的cost，比如识别模型中的cost_layer层，
                               // 检测模型中的region_layer层
 

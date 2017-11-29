@@ -613,6 +613,20 @@ void validate_detector_recall(char *cfgfile, char *weightfile)
     }
 }
 
+/** 本函数是检测模型的一个前向推理测试函数.
+ * @param datacfg       数据集信息文件路径（也即cfg/*.data文件），文件中包含有关数据集的信息，比如cfg/coco.data
+ * @param cfgfile       网络配置文件路径（也即cfg/*.cfg文件），包含一个网络所有的结构参数，比如cfg/yolo.cfg
+ * @param weightfile    已经训练好的网络权重文件路径，比如darknet网站上下载的yolo.weights文件
+ * @param filename      待进行检测的图片路径（单张图片）
+ * @param thresh        阈值，类别检测概率大于该阈值才认为其检测结果有效
+ * @param hier_thresh   
+ * @param outfile
+ * @param fullscreen
+ * @details 该函数为一个前向推理测试函数，不包括训练过程，因此如果要使用该函数，必须提前训练好网络，并加载训练好的网络参数文件，
+ *          这些文件可以在作者网站上根据作者的提示下载到。本函数由darknet.c中的主函数调用，严格来说，本文件不应纳入darknet网络结构文件夹中，
+ *          其只是一个测试文件，或者说是一个example，应该放入到example文件夹中（新版的darknet已经这样做了，可以在github上查看）。
+ *          本函数的流程为：.
+*/
 void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filename, float thresh, float hier_thresh, char *outfile, int fullscreen)
 {
     // 从指定数据文件datacfg（.data文件）中读入数据信息（测试、训练数据信息）到options中
@@ -650,12 +664,12 @@ void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filenam
             if(!input) return;
             strtok(input, "\n");
         }
-        // 读入图片（本函数为预测，所以只读入一张图片）
-        // 读入的im是3通道的，三通道分开存储，每通道二维数据按行存储（所有行并成一行），
-        // 然后三通道再并成一行
+        /// 读入图片（本函数为预测，所以只读入一张图片）
+        /// 读入的im是3通道的，三通道分开存储，每通道二维数据按行存储（所有行并成一行），
+        /// 然后三通道再并成一行
         image im = load_image_color(input,0,0);
         
-        // 标准化输入图片的尺寸为神经网络能够处理的图片尺寸net.w、net.h（主要涉及缩放/嵌入操作）
+        /// 标准化输入图片的尺寸为神经网络能够处理的图片尺寸net.w、net.h（主要涉及缩放/嵌入操作）
         image sized = letterbox_image(im, net.w, net.h);
         //image sized = resize_image(im, net.w, net.h);
         //image sized2 = resize_max(im, net.w);

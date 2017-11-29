@@ -192,12 +192,33 @@ image **load_alphabet()
     return alphabets;
 }
 
+/** 检测最后一步：遍历得到的所有检测框，找出其最大所属概率，判断其是否大于指定阈值，如果大于则在输入图片上绘制检测信息，同时在终端输出检测结果（如果小于，则不作为）.
+ * @param im        输入图片，将在im上绘制检测结果，绘制内容包括定位用矩形框，由26个单字母拼接而成的类别标签
+ * @param num       整张图片所拥有的box（物体检测框）个数，输入图片经过检测之后，会划分成l.w*l.h的网格，每个网格中会提取l.n个box，
+ *                  每个box对应一个包含所有类别所属的概率的数组，数组中元素最大的并且大于某一指定概率阈值对应的类别将作为这个box最终所检测出的物体类别
+ * @param thresh    概率阈值，每个box最大的所属类别概率必须大于这个阈值才接受这个检测结果，否则该box将作废（即不认为其包含物体）
+ * @param boxes     包含所有的box信息，是一个一维数组（大小即为num），每个元素都是一个box数据类型，包含一个box需的信息：矩形框中心坐标x,y以及矩形框宽w，高h
+ * @param probs     这是一个二维数组，行为num，列为物体类别总数（就是该模型所能检测的物体类别的总数，或者说训练数据集中所含有的所有物体类别总数，
+ *                  训练集中不包含的物体肯定无法检测～～），即每行对应一个box，每行包含该框所属所有物体类别的概率。每行最大的元素所对应的物体类别为
+ *                  该检测框最有可能所属的物体类别，当然，最终判定是否属于该类别还需要看其是否大于某一指定概率阈值。
+ * @param names     可以理解成一个一维字符串数组（C中没有字符串的概念，用C字符数组实现字符串），每行存储一个物体的名称，共有classes行
+ * @param alphabet  
+ * @param classes   物体类别总数
+ * @details  最终图片所检测出的box总数并不是有网络配置文件指定的，而是由网络设计决定的，也就是根据前面网络的参数逐层推理计算决定的。darknet中，
+ *           检测模型最后一层往往是region_layer层，这一层输入的l.w，l.h参数就是最终图片所划分的网格数，而每个网格中所检测的矩形框数是由配置文件
+ *           指定的，就是配置文件中的num参数，比如yolo.cfg中最后一层region层中的num参数。这样最后检测得到的box共有l.w*l.h*num个。每个box
+ *           都对应有一个概率数组，数组的大小等于该模型能够检测的物体的类别总数，这些物体都是排好序的，与数组的索引一致，比如/data文件夹下有一个
+ *           coco.names文件，包含了coco数据集中的所有数据类别，该文件中按顺序列出了这些类别的名称，这些顺序刚好也是数组索引的顺序。
+ */
 void draw_detections(image im, int num, float thresh, box *boxes, float **probs, char **names, image **alphabet, int classes)
 {
     int i;
 
     for(i = 0; i < num; ++i){
+        /// 寻找出概率最大的类别索引值，返回的class即为所属物体的索引值。每个prob[i]都是一个大小为classes的一维数组（包含该检测框属于各个物体的概率）
         int class = max_index(probs[i], classes);
+
+        /// 获取概率值，如果该值大于指定阈值，则最终认为该box的确包含索引值为class的物体，并在输入图片上绘制检测信息
         float prob = probs[i][class];
         if(prob > thresh){
 
@@ -209,7 +230,10 @@ void draw_detections(image im, int num, float thresh, box *boxes, float **probs,
             }
 
             //printf("%d %s: %.0f%%\n", i, names[class], prob*100);
+            /// 在终端输出检测结果：类别：概率
             printf("%s: %.0f%%\n", names[class], prob*100);
+
+            /// 
             int offset = class*123457 % classes;
             float red = get_color(2,offset,classes);
             float green = get_color(1,offset,classes);
@@ -223,11 +247,14 @@ void draw_detections(image im, int num, float thresh, box *boxes, float **probs,
             rgb[2] = blue;
             box b = boxes[i];
 
+            /// 计算矩形框在图片中的真实像素坐标（box中所含的都是比例坐标），left为矩形框左横坐标，right为矩形框右横坐标，
+            /// top为矩形框上方纵坐标，bot为矩形框下方纵坐标（这里也是按照OpenCV的习惯，y轴往下，x轴往右，原点为左上角）
             int left  = (b.x-b.w/2.)*im.w;
             int right = (b.x+b.w/2.)*im.w;
             int top   = (b.y-b.h/2.)*im.h;
             int bot   = (b.y+b.h/2.)*im.h;
 
+            /// 越界检测：
             if(left < 0) left = 0;
             if(right > im.w-1) right = im.w-1;
             if(top < 0) top = 0;
@@ -336,23 +363,22 @@ void ghost_image(image source, image dest, int dx, int dy)
     }
 }
 
-/*
-**  将输入source图片的像素值嵌入到目标图片dest中
-**  输入： source    源图片
-**        dest      目标图片（相当于该函数的输出）
-**        dx        列偏移（dx=(source.w-dest.w)/2，因为源图尺寸一般小于目标图片尺寸，所以要将源图嵌入到目标图中心，源图需要在目标图上偏移dx开始插入，如下图）
-**        dy        行偏移（dx=(source.h-dest.h)/2）
-**  下图所示，外层为目标图（dest），内层为源图（source），源图尺寸不超过目标图，源图嵌入到目标图中心
-**  ###############
-**  #             #
-**  #<-->######   #
-**  # dx #    #   #
-**  #    ######   #
-**  #      dy     #
-**  ###############
-**  说明：此函数是将源图片的嵌入到目标图片中心，意味着源图片的尺寸（宽高）不大于目标图片的尺寸，
-**       目标图片在输入函数之前已经有初始化值了，因此如果源图片的尺寸小于目标图片尺寸，
-**       那么源图片会覆盖掉目标图片中新区域的像素值，而目标图片四周多出的像素值则保持为初始化值
+/** 将输入source图片的像素值嵌入到目标图片dest中.
+* @param source    源图片
+* @param dest      目标图片（相当于该函数的输出）
+* @param dx        列偏移（dx=(source.w-dest.w)/2，因为源图尺寸一般小于目标图片尺寸，所以要将源图嵌入到目标图中心，源图需要在目标图上偏移dx开始插入，如下图）
+* @param dy        行偏移（dx=(source.h-dest.h)/2）
+* @details 下图所示，外层为目标图（dest），内层为源图（source），源图尺寸不超过目标图，源图嵌入到目标图中心
+*  ###############
+*  #             #
+*  #<-->######   #
+*  # dx #    #   #
+*  #    ######   #
+*  #      dy     #
+*  ###############
+* @details 此函数是将源图片的嵌入到目标图片中心，意味着源图片的尺寸（宽高）不大于目标图片的尺寸，
+*          目标图片在输入函数之前已经有初始化值了，因此如果源图片的尺寸小于目标图片尺寸，
+*          那么源图片会覆盖掉目标图片中新区域的像素值，而目标图片四周多出的像素值则保持为初始化值.
 */
 void embed_image(image source, image dest, int dx, int dy)
 {
@@ -360,9 +386,9 @@ void embed_image(image source, image dest, int dx, int dy)
     for(k = 0; k < source.c; ++k){
         for(y = 0; y < source.h; ++y){
             for(x = 0; x < source.w; ++x){
-                // 获取源图中k通道y行x列处的像素值
+                /// 获取源图中k通道y行x列处的像素值
                 float val = get_pixel(source, x,y,k);
-                // 设置目标图中k通道dy+y行dx+x列处的像素值为val
+                /// 设置目标图中k通道dy+y行dx+x列处的像素值为val
                 set_pixel(dest, dx+x, dy+y, k, val);
             }
         }
@@ -938,28 +964,26 @@ void letterbox_image_into(image im, int w, int h, image boxed)
     free_image(resized);
 }
 
-/*
-** 按照神经网络能够接受处理的图片尺寸对输入图片进行尺寸调整（主要包括插值缩放与嵌入两个步骤）
-** 输入： im   输入图片（读入的原始图片）
-**       w    网络处理的标准图片宽度（列）
-**       h    网络处理的标准图片高度（行）
-** 返回：boxed，image类型，其尺寸为神经网络能够处理的标准图片尺寸
-** 说明：此函数常用于将图片输入卷积神经网络之前，因为构建神经网络时，一般会指定神经网络第一层接受的输入图片尺寸，
-**      比如yolo.cfg神经网络配置文件中，就指定了height=416,width=416，也就是说图片输入进神经网络之前，
-**      需要标准化图片的尺寸为416,416（此时w=416,h=416）
-** 流程：主要两步：
-**     1）利用插值等比例缩放图片尺寸，缩放后图片resized的尺寸与原图尺寸的比例为w/im.w与h/im.h中的较小值；
-**     2）等比例缩放后的图片resized，还不是神经网络能够处理的标准尺寸（但是resized宽、高二者有一个等于标准尺寸）
-**        第二步进一步将缩放后的图片resized嵌入到标准尺寸图片boxed中并返回
+/** 按照神经网络能够接受处理的图片尺寸对输入图片进行尺寸调整（主要包括插值缩放与嵌入两个步骤）.
+* @param im   输入图片（读入的原始图片）
+* @param w    网络处理的标准图片宽度（列）
+* @param h    网络处理的标准图片高度（行）
+* @return boxed，image类型，其尺寸为神经网络能够处理的标准图片尺寸
+* @details 此函数常用于将图片输入卷积神经网络之前，因为构建神经网络时，一般会指定神经网络第一层接受的输入图片尺寸，
+*          比如yolo.cfg神经网络配置文件中，就指定了height=416,width=416，也就是说图片输入进神经网络之前，
+*          需要标准化图片的尺寸为416,416（此时w=416,h=416）.流程主要包括两步：
+*          1）利用插值等比例缩放图片尺寸，缩放后图片resized的尺寸与原图尺寸的比例为w/im.w与h/im.h中的较小值；
+*          2）等比例缩放后的图片resized，还不是神经网络能够处理的标准尺寸（但是resized宽、高二者有一个等于标准尺寸），
+*             第二步进一步将缩放后的图片resized嵌入到标准尺寸图片boxed中并返回
 */
 image letterbox_image(image im, int w, int h)
 {
-    // 确认缩放后图片（resized）的尺寸大小
+    /// 确认缩放后图片（resized）的尺寸大小
     int new_w = im.w;
     int new_h = im.h;
-    // 缩放后的图片的尺寸与原图成等比例关系，比例值为w/im.w与h/im.h的较小者,
-    // 总之最后的结果有两种：1）new_w=w,new_h=im.h*w/im.w；2）new_w=im.w*h/im.h,new_h=h,
-    // 也即resized的宽高有一个跟标准尺寸w或h相同，另一个按照比例确定
+    /// 缩放后的图片的尺寸与原图成等比例关系，比例值为w/im.w与h/im.h的较小者,
+    /// 总之最后的结果有两种：1）new_w=w,new_h=im.h*w/im.w；2）new_w=im.w*h/im.h,new_h=h,
+    /// 也即resized的宽高有一个跟标准尺寸w或h相同，另一个按照比例确定.
     if (((float)w/im.w) < ((float)h/im.h)) {
         new_w = w;
         new_h = (im.h * w)/im.w;
@@ -967,14 +991,14 @@ image letterbox_image(image im, int w, int h)
         new_h = h;
         new_w = (im.w * h)/im.h;
     }
-    // 第一步：缩放图片，使缩放后的图片尺寸为new_w,new_h
+    /// 第一步：缩放图片，使缩放后的图片尺寸为new_w,new_h
     image resized = resize_image(im, new_w, new_h);
-    // 创建标准尺寸图片，并初始化所有像素值为0.5
+    /// 创建标准尺寸图片，并初始化所有像素值为0.5
     image boxed = make_image(w, h, im.c);
     fill_image(boxed, .5);
     //int i;
     //for(i = 0; i < boxed.w*boxed.h*boxed.c; ++i) boxed.data[i] = 0;
-    // 第二步：将缩放后的图片嵌入到标准尺寸图片中
+    /// 第二步：将缩放后的图片嵌入到标准尺寸图片中
     embed_image(resized, boxed, (w-new_w)/2, (h-new_h)/2); 
 
     // 切记释放没用的resized的内存，然后返回最终的标准尺寸图片

@@ -638,9 +638,16 @@ int sample_array(float *a, int n)
     return n-1;
 }
 
+/** 找出数组a中的最大元素，返回其索引值.
+ * @param a 一维数组，比如检测模型中，可以是包含属于各类概率的数组（数组中最大元素即为物体最有可能所属的类别）
+ * @param n a中元素的个数，比如检测模型中，a中包含所有的物体类别，此时n为物体类别总数
+ */
 int max_index(float *a, int n)
 {
+    /// 如果a为空，返回-1
     if(n <= 0) return -1;
+    
+    /// max_i为最大元素的索引，初始为第一个元素，而后遍历整个数组，找出最大的元素，返回其索引值
     int i, max_i = 0;
     float max = a[0];
     for(i = 1; i < n; ++i){
