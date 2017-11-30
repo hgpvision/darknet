@@ -185,8 +185,8 @@ void cudnn_convolutional_setup(layer *l)
 **  输入：batch    每个batch含有的图片数
 **      h               图片高度（行数）
 **      w               图片宽度（列数）
-        c               输入图片通道数
-        n               卷积核个数
+        c               输入channels 个数
+        n               输出channels 个数
         size            卷积核尺寸
         stride          跨度
         padding         四周补0长度
@@ -194,7 +194,7 @@ void cudnn_convolutional_setup(layer *l)
         batch_normalize 是否进行BN(规范化)
         binary          是否对权重进行二值化
         xnor            是否对权重以及输入进行二值化
-        adam            使用
+        adam            是否使用adam的训练方式  
 */
 convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int n, int size, int stride, int padding, ACTIVATION activation, int batch_normalize, int binary, int xnor, int adam)
 {
@@ -215,17 +215,16 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int
     l.pad = padding;        // 四周补0长度
     l.batch_normalize = batch_normalize;    // 是否进行BN(规范化)
 
-    // 该卷积层总的权重元素（卷积核元素）个数=输入图像通道数*卷积核个数*卷积核尺寸
-    // （因为一个卷积核要作用在输入图片的所有通道上，所以说是一个卷积核，实际含有的卷积核参数个数需要乘以输入图片的通道数）
+    //权重的个数就是n*c*size*size 输出channels * 输入channels 个kernels(卷积核) 每个kernel是size*size个 所以有n*c*size*size个
     l.weights = calloc(c*n*size*size, sizeof(float));
-    // 
+    //权重每经过一次反向都要每一个weights进行更新 weight_updates的大小跟weights大小一样
     l.weight_updates = calloc(c*n*size*size, sizeof(float));
 
-    // bias就是Wx+b中的b（上面的weights就是W），有多少个卷积核，就有多少个b（与W的个数一一对应，每个W的元素个数为c*size*size）
+    // bias就是Wx+b中的b（上面的weights就是W） 每个feature map 也就是每一个channel 拥有一个biaes
     l.biases = calloc(n, sizeof(float));
     l.bias_updates = calloc(n, sizeof(float));
 
-    // 该卷积层总的权重元素个数（实际只有n*size*size个，但复制了c份）
+    
     l.nweights = c*n*size*size;
     l.nbiases = n;
 
@@ -238,6 +237,8 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int
     // TODO：个人感觉，这里应该加一个if条件语句：if(weightfile)，因为如果导入了预训练权重文件，就没有必要这样初始化了（事实上在detector.c的train_detector()函数中，
     // 紧接着parse_network_cfg()函数之后，就添加了if(weightfile)语句判断是否导入权重系数文件，如果导入了权重系数文件，也许这里初始化的值也会覆盖掉，
     // 总之这里的权重初始化的处理方式还是值得思考的，也许更好的方式是应该设置专门的函数进行权重的初始化，同时偏置也是，不过这里似乎没有考虑偏置的初始化，在make_connected_layer()中倒是有。。。）
+    
+    //这里确实初始化比较的简单了，我是模仿caffe自己加了filler.h 以及 filler.c -merlin
     for(i = 0; i < c*n*size*size; ++i) l.weights[i] = scale*rand_normal();
     
     // 根据该层输入图像的尺寸、卷积核尺寸以及跨度计算输出特征图的宽度和高度
@@ -270,7 +271,8 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int
         l.binary_weights = calloc(c*n*size*size, sizeof(float));
         l.binary_input = calloc(l.inputs*l.batch, sizeof(float));
     }
-
+    //注意yolo的conv bn是在卷积层内做的，这里有三个参数：scale，mean，variance
+    //bn的操作为 scale*(x-mean/sqrt(variance)) -merlin
     if(batch_normalize){
         l.scales = calloc(n, sizeof(float));
         l.scale_updates = calloc(n, sizeof(float));
@@ -290,6 +292,7 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int
         l.x_norm = calloc(l.batch*l.outputs, sizeof(float));
     }
     if(adam){
+        //adam 训练方式 所需要的参数 -merlin
         l.adam = 1;
         l.m = calloc(c*n*size*size, sizeof(float));
         l.v = calloc(c*n*size*size, sizeof(float));
@@ -300,6 +303,8 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int
     }
 
 #ifdef GPU
+    //如果使用gpu，这里是在gpu上开空间的操作，与cpu类似，但是yolo是在cpu上开好空间之后，调用了自己定义的cuda_make_array();
+    //其实里面就是cudaMalloc(),以及cudaMemcpy() -merlin
     l.forward_gpu = forward_convolutional_layer_gpu;
     l.backward_gpu = backward_convolutional_layer_gpu;
     l.update_gpu = update_convolutional_layer_gpu;
@@ -407,7 +412,7 @@ void test_convolutional_layer()
     //forward_convolutional_layer(l);
 }
 */
-
+//resize layer 是为了适应多尺度的训练  比如这个batch训练的是416*416大小的图片，下一个batch训练的是600*600的图片，这时比如重新分配内存； -merlin
 void resize_convolutional_layer(convolutional_layer *l, int w, int h)
 {
     l->w = w;
@@ -711,6 +716,7 @@ void backward_convolutional_layer(convolutional_layer l, network net)
     }
 }
 
+//权重更新 -merlin
 void update_convolutional_layer(convolutional_layer l, int batch, float learning_rate, float momentum, float decay)
 {
     int size = l.size*l.size*l.c*l.n;
