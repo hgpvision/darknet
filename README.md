@@ -38,3 +38,11 @@ darknet是一个较为轻型的完全基于C与CUDA的开源深度学习框架�
 4. Contributors:
     * [Goffic](https://github.com/Goffic)： 为rnn_layer.c添加了注释
     * [LamHoCN](https://github.com/LamHoCN)： 修改了一些注释，并提供了一些yolo的应用代码（已push到extension分支中）
+
+# 疑惑求解
+
+1. 始终不明白softmax_layer层反向传播函数backward_softmax_layer()中为什么不用对softmax函数求导？
+
+2. region_layer层前向函数forward_region_layer()在求l.output过程中（也就是第一次使用activate_array函数），为什么只对x,y进行了logistic激活函数处理，而没有对w,h处理（也就是activate_array()函数的第二个参数为什么是2*l.w*l.h，而不是4*l.w*l.h）？还有，region_layer这一层没有训练参数吗？
+
+3. 另外，就是region_layer中cost和delta的计算了，感觉并没有弄懂？
