@@ -64,7 +64,7 @@ struct layer{
     int flipped;
     int inputs;
     int outputs;
-    int nweights;
+    int nweightweights;
     int nbiases;
     int extra;
     int truths;
@@ -328,8 +328,11 @@ struct layer{
     int n;                      // 对于卷积层，该参数表示卷积核个数，等于out_c，其值由网络配置文件指定；对于region_layerc层，该参数等于配置文件中的num值
                                 // (该参数通过make_region_layer()函数赋值，而在parser.c中调用的make_region_layer()函数)，
                                 // 可以在darknet/cfg文件夹下执行命令：grep num *.cfg便可以搜索出所有设置了num参数的网络，这里面包括yolo.cfg等，其值有
-                                // 设定为3,5,2的。
-    int max_boxes;              // 每张图片最多处理的矩形框数（参看：data.c中的load_data_detection()，其输入参数boxes就是指这个参数）
+                                // 设定为3,5,2的，该参数就是Yolo论文中的B，也就是一个cell中预测多少个box。
+    int max_boxes;              /// 每张图片最多含有的标签矩形框数（参看：data.c中的load_data_detection()，其输入参数boxes就是指这个参数），
+                                /// 什么意思呢？就是每张图片中最多打了max_boxes个标签物体，模型预测过程中，可能会预测出很多的物体，但实际上，
+                                /// 图片中打上标签的真正存在的物体最多就max_boxes个，预测多出来的肯定存在false positive，需要滤出与筛选，
+                                /// 可参看region_layer.c中forward_region_layer()函数的第二个for循环中的注释
 
     int groups;                 // 这个参数目前仅发现用在softmax_layer中，含义是将一张图片的数据分成几组，具体的值由网络配置文件指定，如未指定默认为1（见parse_softmax()），
                                 // 很多网络都将该值设置为1，相当于没用到该值，我想这可能跟分类与分割粒度有关（如果粒度细些，估计会大于1,当然这只是个人猜测）
@@ -491,7 +494,7 @@ struct layer{
 
     float * x;
     float * x_norm;
-    float * weights;            // 当前层所有权重系数（连接当前层和上一层的系数，但记在当前层上），对于卷积层，维度为l.n*l.c*l.size*l.size，即卷积核个数乘以卷积核尺寸再乘以输入通道数（各个通道上的权重系数不一样）；
+    float * weights;            // 当前层所有权重系数（连接当前层和上一层的系数，但记在当前层上），对于卷积层，维度为l.n*l.c*l.size*l.size，即卷积核个数乘以卷积核尺寸再乘以输入通道数（各个通道上的权重系数独立不一样）；
                                 // 对于全连接层，维度为单张图片输入与输出元素个数之积inputs*outputs，一般在各网络构建函数中动态分配内存（比如make_connected_layer()）
     float * weight_updates;     // 当前层所有权重系数更新值，对于卷积层维度为l.n*l.c*l.size*l.size；对于全连接层，维度为单张图片输入与输出元素个数之积inputs*outputs，
                                 // 所谓权重系数更新值，就是梯度下降中与步长相乘的那项，也即误差对权重的导数，一般在各网络构建函数中动态分配内存（比如make_connected_layer()

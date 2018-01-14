@@ -225,7 +225,8 @@ convolutional_layer make_convolutional_layer(int batch, int h, int w, int c, int
     l.biases = calloc(n, sizeof(float));
     l.bias_updates = calloc(n, sizeof(float));
 
-    // 该卷积层总的权重元素个数（实际只有n*size*size个，但复制了c份）
+    /// 该卷积层总的权重元素个数（权重元素个数等于输入数据的通道数*卷积核个数*卷积核的二维尺寸，注意因为每一个卷积核是同时作用于输入数据
+    /// 的多个通道上的，因此实际上卷积核是三维的，包括两个维度的平面尺寸，以及输入数据通道数这个维度，每个通道上的卷积核参数都是独立的训练参数）
     l.nweights = c*n*size*size;
     l.nbiases = n;
 
@@ -592,7 +593,7 @@ void backward_convolutional_layer(convolutional_layer l, network net)
     int i;
     int m = l.n;                // 卷积核个数
     // 每一个卷积核元素个数（包括l.c（l.c为该层网络接受的输入图片的通道数）个通道上的卷积核元素个数总数，比如卷积核尺寸为3*3,
-    // 输入图片有3个通道，因为要同时作用于3个通道上，所以需要额外复制两次这个卷积核，那么一个卷积核共有27个元素）
+    // 输入图片有3个通道，因为要同时作用于输入的3个通道上，所以实际上这个卷积核是一个立体的，共有3*3*3=27个元素，这些元素都是要训练的参数）
     int n = l.size*l.size*l.c;
     int k = l.out_w*l.out_h;    // 每张输出特征图的元素个数：out_w，out_h是输出特征图的宽高
 

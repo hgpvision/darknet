@@ -183,30 +183,31 @@ network make_network(int n)
     return net;
 }
 
-/*
-** 前向计算网络net每一层的输出
-** 流程：遍历net的每一层网络，从第0层到最后一层，逐层计算每层的输出
+/** 前向计算网络net每一层的输出.
+ * @param net 构建好的整个网络模型
+ * @details 遍历net的每一层网络，从第0层到最后一层，逐层计算每层的输出
 */
 void forward_network(network net)
 {
     int i;
-    // 遍历所有层，从第一层到最后一层，逐层进行前向传播
+    /// 遍历所有层，从第一层到最后一层，逐层进行前向传播（网络总共有net.n层）
     for(i = 0; i < net.n; ++i){
-        // 置网络当前活跃层为当前层，即第i层
+        /// 置网络当前活跃层为当前层，即第i层
         net.index = i;
-        // 获取当前层
+        /// 获取当前层
         layer l = net.layers[i];
-        // 如果当前层的l.delta已经动态分配了内存，则调用fill_cpu()函数，将其所有元素的值初始化为0
+        /// 如果当前层的l.delta已经动态分配了内存，则调用fill_cpu()函数，将其所有元素的值初始化为0
         if(l.delta){
-            // 第一个参数为l.delta的元素个数，第二个参数为初始化值，为0
+            /// 第一个参数为l.delta的元素个数，第二个参数为初始化值，为0
             fill_cpu(l.outputs * l.batch, 0, l.delta, 1);
         }
 
-        // 前向传播
+        /// 前向传播（前向推理）：完成l层的前向推理
         l.forward(l, net);
 
-        // 置网络的输入为当前层的输出（这将成为下一层网络的输入），要注意的是，此处是直接更改指针变量net.input本身的值，没有改变所指的内容的值，
-        // 所以在退出forward_network()函数后，其对net.input的改变都将失效，net.input将回到
+        /// 完成某一层的推理时，置网络的输入为当前层的输出（这将成为下一层网络的输入），要注意的是，此处是直接更改指针变量net.input本身的值，
+        /// 也就是此处是通过改变指针net.input所指的地址来改变其中所存内容的值，并不是直接改变其所指的内容而指针所指的地址没变，
+        /// 所以在退出forward_network()函数后，其对net.input的改变都将失效，net.input将回到进入forward_network()之前时的值。
         net.input = l.output;
         if(l.truth) {
             net.truth = l.output;
@@ -490,10 +491,12 @@ void top_predictions(network net, int k, int *index)
     top_k(net.output, net.outputs, k, index);
 }
 
-/*
-**  利用构建好的网络net对输入图片input进行目标检测
-**  输入： net   构建好且已经训练好的网络
-**        input 输入图片（尺寸已经调整至网络需要的尺寸）
+/** 利用构建好的网络net对输入数据input进行处理.
+ * @param net   构建好且已经训练好的网络
+ * @param input 输入数据（如果是一张图片，则其尺寸已经调整至网络需要的尺寸）
+ * @return net.output 网络层输出
+ * @details 本函数为整个网络的前向推理函数，调用该函数可完成对某一输入数据进行前向推理的过程，
+ *          可以参考detector.c中test_detector()函数调用该函数完成对一张输入图片检测的用法。
 */
 float *network_predict(network net, float *input)
 {

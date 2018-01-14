@@ -323,21 +323,24 @@ void softmax(float *input, int n, float temp, int stride, float *output)
     }
 }
 
-/*
-** 输入： input    softmax层所有输入数据（包含整个batch的），即net.input（上一层的输出）
-**       n        一组输入数据中含有的元素个数n=l.inputs/l.groups
-**       batch    一个batch中所含有的图片张数（等于net.batch）
-**       batch_offset    一张输入图片含有的元素个数，即值等于l.inputs（所以叫做batch_offset，目的是要借助该参数在input中整张整张照片移位）
-**       groups   一张输入图片的元素被分成了几组，值为l.groups（这个参数由配置文件指定，如果未指定，则默认为1）,这个参数暂时还没遇到怎么用，大部分的网络值都为1,也即相当于没有这个参数
-**       group_offset    值等于n，组偏移（在每张输入图片元素中整组整组偏移）
-**       stride   跨度，这个参数类似于axpy_cpu()函数中的INCX参数，一定注意不同于卷积层中的l.stride，这个参数是指按照stride间隔从每组输入数据中抽取元素，即会抽取所有索引为stride倍数的输入元素，
-**                而其他的输入元素，实际没有用到；stride=1时，显然，相当于没有这个参数，所有输入数据都用到了（这个参数在softmax_layer层中，相当于没用，因为在forward_softmax_layer()中，
-**                调用该函数时，stride已经被写死为1,并不能改，不知道还有没有其他地方使用了这个参数）
-**       temp     softmax的温度参数l.temperature，关于softmax的温度参数，可以搜索一下softmax with temperature，应该会有很多的
-**       output   经softmax处理之后得到的输出l.output（即概率），与input具有相同的元素个数（见make_softmax_layer()），其实由此也可知，
-**                stride的值必然为1,不然output的元素个数肯定少于input的元素个数（所以对于softmax来说，感觉设置stride是没有必要的，有点自相矛盾的意思）
-** 说明：上面的注释出现了新的量词单位，这里厘清一下关系：输入input中包括batch中所有图片的输入数据，其中一张图片具有inputs个元素，一张图片的元素又分成了groups组，
-**      每组元素个数为n=l.inputs/l.groups
+/**
+ * @brief 对输入input进行softmax处理得到输出output
+ * @param input    softmax层所有输入数据（包含整个batch的），即net.input（上一层的输出）
+ * @param n        一组输入数据中含有的元素个数n=l.inputs/l.groups
+ * @param batch    一个batch中所含有的图片张数（等于net.batch）
+ * @param batch_offset    一张输入图片含有的元素个数，即值等于l.inputs（所以叫做batch_offset，目的是要借助该参数在input中整张整张照片移位）
+ * @param groups   一张输入图片的元素被分成了几组，值为l.groups（这个参数由配置文件指定，如果未指定，则默认为1）,这个参数暂时还没遇到怎么用，
+ *                 大部分的网络值都为1,也即相当于没有这个参数
+ * @param group_offset    值等于n，组偏移（在每张输入图片元素中整组整组偏移）
+ * @param stride  跨度，这个参数类似于axpy_cpu()函数中的INCX参数，一定注意不同于卷积层中的l.stride，这个参数是指按照stride间隔从每组输入
+ *                数据中抽取元素，即会抽取所有索引为stride倍数的输入元素，而其他的输入元素，实际没有用到；stride=1时，显然，相当于没有这个参数，
+ *                所有输入数据都用到了（这个参数在softmax_layer层中，相当于没用，因为在forward_softmax_layer()中，调用该函数时，stride已经
+ *                被写死为1,并不能改，不知道还有没有其他地方使用了这个参数）
+ * @param temp     softmax的温度参数l.temperature，关于softmax的温度参数，可以搜索一下softmax with temperature，应该会有很多的
+ * @param output   经softmax处理之后得到的输出l.output（即概率），与input具有相同的元素个数（见make_softmax_layer()），其实由此也可知，
+ *                stride的值必然为1,不然output的元素个数肯定少于input的元素个数（所以对于softmax来说，感觉设置stride是没有必要的，有点自相矛盾的意思）
+ * @note 以上注释针对的是softmax_layer，另有不同地方调用本函数的在调用处进行详细注释；上面的注释出现了新的量词单位，这里厘清一下关系：输入input
+ *        中包括batch中所有图片的输入数据，其中一张图片具有inputs个元素，一张图片的元素又分成了groups组，每组元素个数为n=l.inputs/l.groups
 */
 void softmax_cpu(float *input, int n, int batch, int batch_offset, int groups, int group_offset, int stride, float temp, float *output)
 {
