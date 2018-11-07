@@ -623,7 +623,7 @@ void backward_convolutional_layer(convolutional_layer l, network net)
     // 遍历batch中的每张照片，对于l.delta来说，每张照片是分开存的，因此其维度会达到：l.batch*l.n*l.out_w*l.out_h，
     // 对于l.weights,l.weight_updates以及上面提到的l.bias,l.bias_updates，是将所有照片对应元素叠加起来
     // （循环的过程就是叠加的过程，注意gemm()这系列函数含有叠加效果，不是覆盖输入C的值，而是叠加到之前的C上），
-    // 因此l.weights与l.weight_updates维度为l.n*l.size*l.size，l.bias与l.bias_updates的维度为l.h，都与l.batch无关
+    // 因此l.weights与l.weight_updates维度为l.n*l.size*l.size，l.bias与l.bias_updates的维度为l.n，都与l.batch无关
     for(i = 0; i < l.batch; ++i){
         float *a = l.delta + i*m*k;
         // net.workspace的元素个数为所有层中最大的l.workspace_size（在make_convolutional_layer()计算得到workspace_size的大小，在parse_network_cfg()中动态分配内存，此值对应未使用gpu时的情况）,
